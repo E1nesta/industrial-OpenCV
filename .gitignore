@@ -1,0 +1,56 @@
+# Build outputs
+/build/
+/out/
+/cmake-build-*/
+/install/
+/CMakeFiles/
+/CMakeCache.txt
+/compile_commands.json
+*.o
+*.obj
+*.a
+*.lib
+*.dll
+*.exe
+*.pdb
+*.ilk
+
+# IDE and local user state
+/.qtcreator/
+/.qtc_clangd/
+/.vs/
+/.idea/
+*.user
+*.user.*
+*.suo
+*.vcxproj*
+*.opensdf
+*.pro.user
+*.qbs.user
+*.autosave
+/CMakeUserPresets.json
+
+# Logs, temp files, and local runtime data
+*.log
+/docs/
+/README.md
+/logs/
+/tmp/
+/temp/
+/config/
+/data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Local config overrides
+.env
+.env.*
+*.local.ini
+*.local.json
+*.local.yaml
+*.local.yml
+
+# OS-generated files
+Thumbs.db
+.DS_Store

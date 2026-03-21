@@ -1,0 +1,32 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 21,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "local-mingw-debug",
+      "displayName": "Local MinGW Debug",
+      "description": "Use local tools under G:/CODE/Tools with Qt 6.10.2 MinGW and vcpkg OpenCV.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/local-mingw-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_MAKE_PROGRAM": "G:/CODE/Tools/Ninja/ninja.exe",
+        "CMAKE_CXX_COMPILER": "G:/CODE/Tools/mingw1310_64/bin/g++.exe",
+        "VISION_TOOLS_ROOT": "G:/CODE/Tools",
+        "VISION_QT_ROOT": "G:/CODE/6.10.2/mingw_64",
+        "VISION_VCPKG_ROOT": "G:/environment/vcpkg",
+        "VCPKG_TARGET_TRIPLET": "x64-mingw-static"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "local-mingw-debug",
+      "configurePreset": "local-mingw-debug"
+    }
+  ]
+}

@@ -7,9 +7,12 @@
 
 #include <opencv2/imgproc.hpp>
 
+#include "logger/logmanager.h"
+
 DetectResult ImageProcessor::process(
     const cv::Mat &image,
     const VisionParam &param,
+    LogManager *logManager,
     const std::function<bool()> &shouldCancel) const
 {
     using clock = std::chrono::steady_clock;
@@ -26,12 +29,26 @@ DetectResult ImageProcessor::process(
     const auto isCanceled = [&shouldCancel]() {
         return static_cast<bool>(shouldCancel) && shouldCancel();
     };
+    const auto logDebug = [logManager](const QString &message) {
+        if (logManager != nullptr) {
+            logManager->debug(QStringLiteral("图像处理"), message);
+        }
+    };
 
     if (image.empty()) {
         result.isOk = false;
         result.message = QStringLiteral("输入图像为空。");
         return result;
     }
+
+    logDebug(QStringLiteral("开始：%1x%2 channels=%3 threshold=%4 minArea=%5 maxArea=%6 morphology=%7")
+                 .arg(image.cols)
+                 .arg(image.rows)
+                 .arg(image.channels())
+                 .arg(param.threshold)
+                 .arg(param.minArea)
+                 .arg(param.maxArea)
+                 .arg(param.enableMorphology ? QStringLiteral("true") : QStringLiteral("false")));
 
     if (isCanceled()) {
         return makeCanceledResult();
@@ -47,6 +64,11 @@ DetectResult ImageProcessor::process(
 
         roiRect = cv::Rect(x, y, right - x, bottom - y);
         workingImage = image(roiRect).clone();
+        logDebug(QStringLiteral("ROI 生效：x=%1 y=%2 w=%3 h=%4")
+                     .arg(roiRect.x)
+                     .arg(roiRect.y)
+                     .arg(roiRect.width)
+                     .arg(roiRect.height));
     }
 
     if (isCanceled()) {
@@ -61,6 +83,7 @@ DetectResult ImageProcessor::process(
     } else {
         cv::cvtColor(workingImage, gray, cv::COLOR_BGR2GRAY);
     }
+    logDebug(QStringLiteral("灰度化完成。"));
 
     if (isCanceled()) {
         return makeCanceledResult();
@@ -68,10 +91,12 @@ DetectResult ImageProcessor::process(
 
     cv::Mat binary;
     cv::threshold(gray, binary, param.threshold, 255, cv::THRESH_BINARY_INV);
+    logDebug(QStringLiteral("二值化完成。"));
 
     if (param.enableMorphology) {
         const cv::Mat kernel = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3));
         cv::morphologyEx(binary, binary, cv::MORPH_OPEN, kernel);
+        logDebug(QStringLiteral("形态学处理完成。"));
     }
 
     if (isCanceled()) {
@@ -80,6 +105,7 @@ DetectResult ImageProcessor::process(
 
     std::vector<std::vector<cv::Point>> contours;
     cv::findContours(binary, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+    logDebug(QStringLiteral("轮廓提取完成：count=%1").arg(contours.size()));
 
     const double minArea = std::max(0, param.minArea);
     const double maxArea =
@@ -101,6 +127,7 @@ DetectResult ImageProcessor::process(
         rect.y += roiRect.y;
         result.defectRects.push_back(rect);
     }
+    logDebug(QStringLiteral("缺陷筛选完成：kept=%1").arg(result.defectRects.size()));
 
     result.defectCount = static_cast<int>(result.defectRects.size());
     result.isOk = result.defectCount == 0;
@@ -110,5 +137,9 @@ DetectResult ImageProcessor::process(
 
     const auto end = clock::now();
     result.processTimeMs = std::chrono::duration<double, std::milli>(end - start).count();
+    logDebug(QStringLiteral("完成：result=%1 defects=%2 time=%3 ms")
+                 .arg(result.isOk ? QStringLiteral("OK") : QStringLiteral("NG"))
+                 .arg(result.defectCount)
+                 .arg(result.processTimeMs, 0, 'f', 2));
     return result;
 }

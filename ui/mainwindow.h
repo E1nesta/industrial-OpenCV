@@ -2,11 +2,13 @@
 
 #include <QMainWindow>
 #include <QString>
+#include <QStringList>
 
 #include "models/detectresult.h"
 #include "models/deviceconfig.h"
 #include "models/inspectionrecord.h"
 #include "models/visionparam.h"
+#include "logger/logevent.h"
 
 class AppController;
 class ImageViewWidget;
@@ -45,12 +47,21 @@ private slots:
     void syncFromController();
     void syncRecentRecords();
     void syncTcpState();
+    void onLogFilterChanged();
+    void onRuntimeLogLevelChanged(const QString &levelName);
+    void onUiLogGenerated(const LogEvent &event);
 
 private:
     VisionParam collectVisionParam() const;
     DeviceConfig collectDeviceConfig() const;
+    QRect collectRoi() const;
     void displayRecordDetails(const InspectionRecord &record);
     void updateRecentRecordsTable(const QList<InspectionRecord> &records);
+    void setRoiControls(const QRect &roi);
+    void updateRoiSummary();
+    void refreshLogView();
+    bool logMatchesFilters(const LogEvent &event) const;
+    void ensureLogModuleOption(const QString &module);
     void appendLog(const QString &message);
     void bindSignals();
     void setupImageViews();
@@ -62,4 +73,6 @@ private:
     ImageViewWidget *m_resultImageView = nullptr;
     QString m_currentImagePath;
     QList<InspectionRecord> m_recentRecords;
+    QList<LogEvent> m_uiLogEvents;
+    QStringList m_knownLogModules;
 };

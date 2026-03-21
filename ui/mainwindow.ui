@@ -143,19 +143,103 @@
              </widget>
             </item>
             <item row="4" column="0">
-             <widget class="QLabel" name="roiLabel">
+             <widget class="QLabel" name="roiXLabel">
               <property name="text">
-               <string>ROI</string>
+               <string>ROI X</string>
               </property>
              </widget>
             </item>
             <item row="4" column="1">
+             <widget class="QSpinBox" name="roiXSpinBox">
+              <property name="maximum">
+               <number>100000</number>
+              </property>
+             </widget>
+            </item>
+            <item row="5" column="0">
+             <widget class="QLabel" name="roiYLabel">
+              <property name="text">
+               <string>ROI Y</string>
+              </property>
+             </widget>
+            </item>
+            <item row="5" column="1">
+             <widget class="QSpinBox" name="roiYSpinBox">
+              <property name="maximum">
+               <number>100000</number>
+              </property>
+             </widget>
+            </item>
+            <item row="6" column="0">
+             <widget class="QLabel" name="roiWidthLabel">
+              <property name="text">
+               <string>ROI 宽度</string>
+              </property>
+             </widget>
+            </item>
+            <item row="6" column="1">
+             <widget class="QSpinBox" name="roiWidthSpinBox">
+              <property name="maximum">
+               <number>100000</number>
+              </property>
+             </widget>
+            </item>
+            <item row="7" column="0">
+             <widget class="QLabel" name="roiHeightLabel">
+              <property name="text">
+               <string>ROI 高度</string>
+              </property>
+             </widget>
+            </item>
+            <item row="7" column="1">
+             <widget class="QSpinBox" name="roiHeightSpinBox">
+              <property name="maximum">
+               <number>100000</number>
+              </property>
+             </widget>
+            </item>
+            <item row="8" column="0">
+             <widget class="QLabel" name="roiLabel">
+              <property name="text">
+               <string>ROI 摘要</string>
+              </property>
+             </widget>
+            </item>
+            <item row="8" column="1">
              <widget class="QLabel" name="roiValueLabel">
               <property name="text">
                <string>未设置</string>
               </property>
               <property name="wordWrap">
                <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item row="9" column="0" colspan="2">
+             <widget class="QPushButton" name="clearRoiButton">
+              <property name="text">
+               <string>清空 ROI</string>
+              </property>
+             </widget>
+            </item>
+            <item row="10" column="0">
+             <widget class="QLabel" name="imageSavePathLabel">
+              <property name="text">
+               <string>图片保存路径</string>
+              </property>
+             </widget>
+            </item>
+            <item row="10" column="1">
+             <widget class="QLineEdit" name="imageSavePathLineEdit">
+              <property name="placeholderText">
+               <string>data/images</string>
+              </property>
+             </widget>
+            </item>
+            <item row="11" column="0" colspan="2">
+             <widget class="QPushButton" name="browseImageSavePathButton">
+              <property name="text">
+               <string>选择图片保存目录</string>
               </property>
              </widget>
             </item>
@@ -465,6 +549,64 @@
            <string>运行日志</string>
           </property>
           <layout class="QVBoxLayout" name="logLayout">
+           <item>
+            <layout class="QHBoxLayout" name="logCaptureLevelLayout">
+             <item>
+              <widget class="QLabel" name="logCaptureLevelLabel">
+               <property name="text">
+                <string>采集级别</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QComboBox" name="logCaptureLevelComboBox"/>
+             </item>
+             <item>
+              <spacer name="logCaptureLevelSpacer">
+               <property name="orientation">
+                <enum>Qt::Horizontal</enum>
+               </property>
+               <property name="sizeHint" stdset="0">
+                <size>
+                 <width>40</width>
+                 <height>20</height>
+                </size>
+               </property>
+              </spacer>
+             </item>
+            </layout>
+           </item>
+           <item>
+            <layout class="QHBoxLayout" name="logFilterLayout">
+             <item>
+              <widget class="QLabel" name="logLevelFilterLabel">
+               <property name="text">
+                <string>级别</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QComboBox" name="logLevelFilterComboBox"/>
+             </item>
+             <item>
+              <widget class="QLabel" name="logModuleFilterLabel">
+               <property name="text">
+                <string>模块</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QComboBox" name="logModuleFilterComboBox"/>
+             </item>
+             <item>
+              <widget class="QPushButton" name="clearLogButton">
+               <property name="text">
+                <string>清空显示</string>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </item>
            <item>
             <widget class="QPlainTextEdit" name="logPlainTextEdit">
              <property name="readOnly">

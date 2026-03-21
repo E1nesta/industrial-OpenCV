@@ -1,5 +1,7 @@
 #include "communication/tcpmanager.h"
 
+#include <algorithm>
+
 #include "common/utils.h"
 
 namespace
@@ -39,6 +41,8 @@ bool TcpManager::connectToDevice(int timeoutMs)
 {
     m_lastError.clear();
     const QString host = m_deviceConfig.ip.trimmed();
+    QTcpSocket &socket = ensureSocket();
+    const int effectiveTimeoutMs = resolvedConnectTimeoutMs(timeoutMs);
 
     if (host.isEmpty() || m_deviceConfig.port <= 0) {
         m_lastError = QStringLiteral("TCP 配置无效，请检查 IP 和端口。");
@@ -49,10 +53,10 @@ bool TcpManager::connectToDevice(int timeoutMs)
         return true;
     }
 
-    m_socket.abort();
-    m_socket.connectToHost(host, static_cast<quint16>(m_deviceConfig.port));
-    if (!m_socket.waitForConnected(timeoutMs)) {
-        m_lastError = m_socket.errorString();
+    socket.abort();
+    socket.connectToHost(host, static_cast<quint16>(m_deviceConfig.port));
+    if (!socket.waitForConnected(effectiveTimeoutMs)) {
+        m_lastError = socket.errorString();
         return false;
     }
 
@@ -63,10 +67,11 @@ bool TcpManager::connectToDevice(int timeoutMs)
 
 void TcpManager::disconnectFromDevice(bool clearError)
 {
-    if (m_socket.state() != QAbstractSocket::UnconnectedState) {
-        m_socket.disconnectFromHost();
-        if (m_socket.state() != QAbstractSocket::UnconnectedState) {
-            m_socket.waitForDisconnected(300);
+    QTcpSocket *socket = socketIfAvailable();
+    if (socket != nullptr && socket->state() != QAbstractSocket::UnconnectedState) {
+        socket->disconnectFromHost();
+        if (socket->state() != QAbstractSocket::UnconnectedState) {
+            socket->waitForDisconnected(300);
         }
     }
 
@@ -79,7 +84,8 @@ void TcpManager::disconnectFromDevice(bool clearError)
 
 bool TcpManager::isConnected() const
 {
-    return m_socket.state() == QAbstractSocket::ConnectedState;
+    const QTcpSocket *socket = socketIfAvailable();
+    return socket != nullptr && socket->state() == QAbstractSocket::ConnectedState;
 }
 
 bool TcpManager::sendResult(bool isOk, int timeoutMs)
@@ -87,28 +93,38 @@ bool TcpManager::sendResult(bool isOk, int timeoutMs)
     m_lastError.clear();
     m_lastReply.clear();
     const QByteArray payload = buildResultPayload(isOk);
+    const int connectTimeoutMs = resolvedConnectTimeoutMs(timeoutMs);
+    const int sendTimeoutMs = resolvedSendTimeoutMs(timeoutMs);
+    const int retryCount = resolvedSendRetryCount();
 
-    if (!connectToDevice(timeoutMs)) {
+    if (!connectToDevice(connectTimeoutMs)) {
         return false;
     }
 
-    if (sendPayloadWithReceipt(payload, timeoutMs)) {
+    if (sendPayloadWithReceipt(payload, sendTimeoutMs)) {
         return true;
     }
 
     const QString firstError = m_lastError;
-    disconnectFromDevice(false);
 
-    if (!connectToDevice(timeoutMs)) {
-        if (!firstError.isEmpty()) {
-            m_lastError = QStringLiteral("%1；重连失败：%2").arg(firstError, m_socket.errorString());
+    for (int attempt = 0; attempt < retryCount; ++attempt) {
+        disconnectFromDevice(false);
+
+        if (!connectToDevice(connectTimeoutMs)) {
+            if (!firstError.isEmpty()) {
+                const QTcpSocket *socket = socketIfAvailable();
+                m_lastError = QStringLiteral("%1；重连失败（第 %2 次重试）：%3")
+                                  .arg(firstError)
+                                  .arg(attempt + 1)
+                                  .arg(socket != nullptr ? socket->errorString() : QString());
+            }
+
+            return false;
         }
 
-        return false;
-    }
-
-    if (sendPayloadWithReceipt(payload, timeoutMs)) {
-        return true;
+        if (sendPayloadWithReceipt(payload, sendTimeoutMs)) {
+            return true;
+        }
     }
 
     if (!firstError.isEmpty() && !m_lastError.isEmpty()) {
@@ -161,30 +177,32 @@ bool TcpManager::sendPayloadWithReceipt(const QByteArray &payload, int timeoutMs
         return false;
     }
 
-    if (m_socket.bytesAvailable() > 0) {
-        m_socket.readAll();
+    QTcpSocket &socket = ensureSocket();
+
+    if (socket.bytesAvailable() > 0) {
+        socket.readAll();
     }
 
-    const qint64 written = m_socket.write(payload);
+    const qint64 written = socket.write(payload);
     if (written != payload.size()) {
         m_lastError = QStringLiteral("TCP 发送长度异常。");
         disconnectFromDevice(false);
         return false;
     }
 
-    if (!m_socket.waitForBytesWritten(timeoutMs)) {
-        m_lastError = m_socket.errorString();
+    if (!socket.waitForBytesWritten(timeoutMs)) {
+        m_lastError = socket.errorString();
         disconnectFromDevice(false);
         return false;
     }
 
-    if (!m_socket.waitForReadyRead(timeoutMs)) {
+    if (!socket.waitForReadyRead(timeoutMs)) {
         m_lastError = QStringLiteral("结果已发送，但未收到回执。");
         disconnectFromDevice(false);
         return false;
     }
 
-    const QByteArray replyBytes = m_socket.readAll().trimmed();
+    const QByteArray replyBytes = socket.readAll().trimmed();
     if (replyBytes.isEmpty()) {
         m_lastError = QStringLiteral("结果已发送，但回执为空。");
         disconnectFromDevice(false);
@@ -200,4 +218,41 @@ bool TcpManager::sendPayloadWithReceipt(const QByteArray &payload, int timeoutMs
     m_lastReply = QString::fromUtf8(replyBytes);
     m_lastError.clear();
     return true;
+}
+
+QTcpSocket *TcpManager::socketIfAvailable() const
+{
+    return m_socket.get();
+}
+
+QTcpSocket &TcpManager::ensureSocket()
+{
+    if (!m_socket) {
+        m_socket = std::make_unique<QTcpSocket>();
+    }
+
+    return *m_socket;
+}
+
+int TcpManager::resolvedConnectTimeoutMs(int timeoutMs) const
+{
+    if (timeoutMs > 0) {
+        return timeoutMs;
+    }
+
+    return std::max(100, m_deviceConfig.tcpConnectTimeoutMs);
+}
+
+int TcpManager::resolvedSendTimeoutMs(int timeoutMs) const
+{
+    if (timeoutMs > 0) {
+        return timeoutMs;
+    }
+
+    return std::max(100, m_deviceConfig.tcpSendTimeoutMs);
+}
+
+int TcpManager::resolvedSendRetryCount() const
+{
+    return std::max(0, m_deviceConfig.tcpSendRetryCount);
 }

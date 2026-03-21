@@ -10,6 +10,7 @@
 #include <QHeaderView>
 #include <QImage>
 #include <QMessageBox>
+#include <QSignalBlocker>
 #include <QStatusBar>
 #include <QTableWidgetItem>
 #include <QTextDocument>
@@ -21,6 +22,8 @@
 
 namespace
 {
+constexpr int kUiLogHistoryLimit = 500;
+
 QString escapeCsvField(const QString &value)
 {
     QString escaped = value;
@@ -62,7 +65,7 @@ void MainWindow::onImportImageClicked()
     const QImage image(filePath);
     if (image.isNull()) {
         QMessageBox::warning(this, tr("图片加载失败"), tr("所选文件无法作为图片加载。"));
-        appendLog(QStringLiteral("图片加载失败：%1").arg(filePath));
+        m_controller->logManager().warn(QStringLiteral("界面"), QStringLiteral("图片加载失败：%1").arg(filePath));
         return;
     }
 
@@ -74,7 +77,7 @@ void MainWindow::onImportImageClicked()
     ui->defectCountValueLabel->setText(QStringLiteral("--"));
     ui->processTimeValueLabel->setText(QStringLiteral("--"));
 
-    appendLog(QStringLiteral("已导入图片：%1").arg(filePath));
+    m_controller->logManager().info(QStringLiteral("界面"), QStringLiteral("已导入图片：%1").arg(filePath));
     statusBar()->showMessage(tr("图片已加载"), 3000);
 }
 
@@ -127,12 +130,14 @@ void MainWindow::onExportRecordsClicked()
     QFile file(filePath);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
         QMessageBox::warning(this, tr("导出失败"), tr("无法写入目标文件。"));
-        appendLog(QStringLiteral("导出最近记录失败：%1").arg(filePath));
+        m_controller->logManager().warn(
+            QStringLiteral("界面"),
+            QStringLiteral("导出最近记录失败：%1").arg(filePath));
         return;
     }
 
     QTextStream stream(&file);
-    stream << "timestamp,batch_no,result,defect_count,process_time_ms,image_path\n";
+    stream << "timestamp,batch_no,result,defect_count,process_time_ms,image_path,result_image_path\n";
 
     for (const InspectionRecord &record : m_recentRecords) {
         stream << escapeCsvField(record.timestamp) << ','
@@ -140,11 +145,14 @@ void MainWindow::onExportRecordsClicked()
                << escapeCsvField(utils::boolToResultText(record.isOk)) << ','
                << record.defectCount << ','
                << QString::number(record.processTimeMs, 'f', 2) << ','
-               << escapeCsvField(record.imagePath) << '\n';
+               << escapeCsvField(record.imagePath) << ','
+               << escapeCsvField(record.resultImagePath) << '\n';
     }
 
     file.close();
-    appendLog(QStringLiteral("最近记录已导出：%1").arg(filePath));
+    m_controller->logManager().info(
+        QStringLiteral("界面"),
+        QStringLiteral("最近记录已导出：%1").arg(filePath));
     statusBar()->showMessage(tr("最近记录导出完成"), 3000);
 }
 
@@ -162,7 +170,6 @@ void MainWindow::onRecentRecordActivated(int row, int column)
 void MainWindow::onLoadParamClicked()
 {
     m_controller->reloadConfig();
-    appendLog(QStringLiteral("已从本地配置文件重新加载参数。"));
 }
 
 void MainWindow::onSaveParamClicked()
@@ -170,13 +177,11 @@ void MainWindow::onSaveParamClicked()
     m_controller->setVisionParam(collectVisionParam());
     m_controller->setDeviceConfig(collectDeviceConfig());
     m_controller->saveCurrentParam();
-    appendLog(QStringLiteral("已保存当前参数与通信配置。"));
 }
 
 void MainWindow::onResetParamClicked()
 {
     m_controller->resetToDefaults();
-    appendLog(QStringLiteral("参数已恢复默认值。"));
 }
 
 void MainWindow::onTcpConnectClicked()
@@ -185,13 +190,10 @@ void MainWindow::onTcpConnectClicked()
 
     if (m_controller->isTcpConnected()) {
         m_controller->disconnectTcpDevice();
-        appendLog(QStringLiteral("已主动断开 TCP 连接。"));
         return;
     }
 
-    if (m_controller->connectTcpDevice()) {
-        appendLog(QStringLiteral("TCP 已连接：%1").arg(m_controller->tcpStatusText()));
-    } else {
+    if (!m_controller->connectTcpDevice()) {
         QMessageBox::warning(this, tr("TCP 连接失败"), m_controller->tcpStatusText());
     }
 }
@@ -202,7 +204,6 @@ void MainWindow::onDetectionStarted()
     ui->resultStateValueLabel->setText(QStringLiteral("检测中"));
     ui->defectCountValueLabel->setText(QStringLiteral("--"));
     ui->processTimeValueLabel->setText(QStringLiteral("--"));
-    appendLog(QStringLiteral("检测任务已提交，等待后台处理完成。"));
     statusBar()->showMessage(tr("检测任务执行中"), 3000);
 }
 
@@ -212,7 +213,6 @@ void MainWindow::onDetectionFinished(const DetectResult &result, const QImage &r
     ui->resultStateValueLabel->setText(utils::boolToResultText(result.isOk));
     ui->defectCountValueLabel->setText(QString::number(result.defectCount));
     ui->processTimeValueLabel->setText(QStringLiteral("%1 ms").arg(result.processTimeMs, 0, 'f', 2));
-    appendLog(result.message);
     statusBar()->showMessage(tr("检测完成"), 3000);
 }
 
@@ -221,7 +221,6 @@ void MainWindow::onDetectionFailed(const QString &errorMessage)
     ui->resultStateValueLabel->setText(QStringLiteral("失败"));
     ui->defectCountValueLabel->setText(QStringLiteral("--"));
     ui->processTimeValueLabel->setText(QStringLiteral("--"));
-    appendLog(errorMessage);
     statusBar()->showMessage(tr("检测失败"), 3000);
     QMessageBox::warning(this, tr("检测失败"), errorMessage);
 }
@@ -232,7 +231,6 @@ void MainWindow::onDetectionCanceled()
     ui->defectCountValueLabel->setText(QStringLiteral("--"));
     ui->processTimeValueLabel->setText(QStringLiteral("--"));
     m_resultImageView->clearImage();
-    appendLog(QStringLiteral("检测任务已取消。"));
     statusBar()->showMessage(tr("检测任务已取消"), 3000);
 }
 
@@ -258,6 +256,13 @@ void MainWindow::onDetectionRunningChanged(bool isRunning)
     ui->minAreaSpinBox->setEnabled(!isRunning);
     ui->maxAreaSpinBox->setEnabled(!isRunning);
     ui->morphologyCheckBox->setEnabled(!isRunning);
+    ui->roiXSpinBox->setEnabled(!isRunning);
+    ui->roiYSpinBox->setEnabled(!isRunning);
+    ui->roiWidthSpinBox->setEnabled(!isRunning);
+    ui->roiHeightSpinBox->setEnabled(!isRunning);
+    ui->clearRoiButton->setEnabled(!isRunning);
+    ui->imageSavePathLineEdit->setEnabled(!isRunning);
+    ui->browseImageSavePathButton->setEnabled(!isRunning);
     ui->tcpIpLineEdit->setEnabled(!isRunning);
     ui->tcpPortSpinBox->setEnabled(!isRunning);
 }
@@ -266,7 +271,6 @@ void MainWindow::onControllerStatusChanged(const QString &message)
 {
     ui->statusValueLabel->setText(message);
     statusBar()->showMessage(message, 5000);
-    appendLog(message);
 }
 
 void MainWindow::syncFromController()
@@ -278,9 +282,14 @@ void MainWindow::syncFromController()
     ui->minAreaSpinBox->setValue(param.minArea);
     ui->maxAreaSpinBox->setValue(param.maxArea);
     ui->morphologyCheckBox->setChecked(param.enableMorphology);
-    ui->roiValueLabel->setText(utils::formatRoi(param.roi));
+    setRoiControls(param.roi);
+    ui->imageSavePathLineEdit->setText(param.imageSavePath);
     ui->tcpIpLineEdit->setText(deviceConfig.ip);
     ui->tcpPortSpinBox->setValue(deviceConfig.port);
+    {
+        const QSignalBlocker blocker(ui->logCaptureLevelComboBox);
+        ui->logCaptureLevelComboBox->setCurrentText(m_controller->logManager().minimumLevelName());
+    }
 
     ui->stageValueLabel->setText(m_controller->projectStage());
     ui->configPathValueLabel->setText(m_controller->configFilePath());
@@ -305,6 +314,9 @@ VisionParam MainWindow::collectVisionParam() const
     param.minArea = ui->minAreaSpinBox->value();
     param.maxArea = ui->maxAreaSpinBox->value();
     param.enableMorphology = ui->morphologyCheckBox->isChecked();
+    param.roi = collectRoi();
+    const QString imageSavePath = ui->imageSavePathLineEdit->text().trimmed();
+    param.imageSavePath = imageSavePath.isEmpty() ? VisionParam{}.imageSavePath : imageSavePath;
     return param;
 }
 
@@ -316,6 +328,17 @@ DeviceConfig MainWindow::collectDeviceConfig() const
     return config;
 }
 
+QRect MainWindow::collectRoi() const
+{
+    const int width = ui->roiWidthSpinBox->value();
+    const int height = ui->roiHeightSpinBox->value();
+    if (width <= 0 || height <= 0) {
+        return {};
+    }
+
+    return QRect(ui->roiXSpinBox->value(), ui->roiYSpinBox->value(), width, height);
+}
+
 void MainWindow::displayRecordDetails(const InspectionRecord &record)
 {
     ui->currentImageValueLabel->setText(record.imagePath);
@@ -323,13 +346,14 @@ void MainWindow::displayRecordDetails(const InspectionRecord &record)
     ui->defectCountValueLabel->setText(QString::number(record.defectCount));
     ui->processTimeValueLabel->setText(QStringLiteral("%1 ms").arg(record.processTimeMs, 0, 'f', 2));
     ui->selectedRecordDetailValueLabel->setText(
-        QStringLiteral("时间：%1\n批次：%2\n结果：%3\n缺陷数：%4\n耗时：%5 ms\n图片：%6")
+        QStringLiteral("时间：%1\n批次：%2\n结果：%3\n缺陷数：%4\n耗时：%5 ms\n原图：%6\n结果图：%7")
             .arg(record.timestamp,
                  record.batchNo.isEmpty() ? QStringLiteral("未设置") : record.batchNo,
                  utils::boolToResultText(record.isOk))
             .arg(record.defectCount)
             .arg(record.processTimeMs, 0, 'f', 2)
-            .arg(record.imagePath));
+            .arg(record.imagePath,
+                 record.resultImagePath.isEmpty() ? QStringLiteral("未归档") : record.resultImagePath));
 
     m_resultImageView->clearImage();
 
@@ -337,7 +361,9 @@ void MainWindow::displayRecordDetails(const InspectionRecord &record)
     if (!imageInfo.exists()) {
         m_currentImagePath.clear();
         m_sourceImageView->clearImage();
-        appendLog(QStringLiteral("历史记录图片不存在：%1").arg(record.imagePath));
+        m_controller->logManager().warn(
+            QStringLiteral("界面"),
+            QStringLiteral("历史记录图片不存在：%1").arg(record.imagePath));
         statusBar()->showMessage(tr("历史记录图片不存在"), 3000);
         return;
     }
@@ -346,20 +372,77 @@ void MainWindow::displayRecordDetails(const InspectionRecord &record)
     if (image.isNull()) {
         m_currentImagePath.clear();
         m_sourceImageView->clearImage();
-        appendLog(QStringLiteral("历史记录图片无法加载：%1").arg(record.imagePath));
+        m_controller->logManager().warn(
+            QStringLiteral("界面"),
+            QStringLiteral("历史记录图片无法加载：%1").arg(record.imagePath));
         statusBar()->showMessage(tr("历史记录图片无法加载"), 3000);
         return;
     }
 
     m_currentImagePath = record.imagePath;
     m_sourceImageView->setImage(image);
-    appendLog(QStringLiteral("已切换到历史记录：%1").arg(record.imagePath));
+
+    const QFileInfo resultImageInfo(record.resultImagePath);
+    if (resultImageInfo.exists()) {
+        const QImage resultImage(record.resultImagePath);
+        if (!resultImage.isNull()) {
+            m_resultImageView->setImage(resultImage);
+        } else {
+            m_controller->logManager().warn(
+                QStringLiteral("界面"),
+                QStringLiteral("历史结果图无法加载：%1").arg(record.resultImagePath));
+        }
+    } else if (!record.resultImagePath.isEmpty()) {
+        m_controller->logManager().warn(
+            QStringLiteral("界面"),
+            QStringLiteral("历史结果图不存在：%1").arg(record.resultImagePath));
+    }
+
+    m_controller->logManager().info(
+        QStringLiteral("界面"),
+        QStringLiteral("已切换到历史记录：%1").arg(record.imagePath));
     statusBar()->showMessage(tr("已加载历史记录原图"), 3000);
+}
+
+void MainWindow::refreshLogView()
+{
+    ui->logPlainTextEdit->clear();
+
+    for (const LogEvent &event : m_uiLogEvents) {
+        if (logMatchesFilters(event)) {
+            appendLog(event.formattedLine);
+        }
+    }
+}
+
+bool MainWindow::logMatchesFilters(const LogEvent &event) const
+{
+    const QString levelFilter = ui->logLevelFilterComboBox->currentText();
+    if (levelFilter != QStringLiteral("全部") && event.level != levelFilter) {
+        return false;
+    }
+
+    const QString moduleFilter = ui->logModuleFilterComboBox->currentText();
+    if (moduleFilter != QStringLiteral("全部") && event.module != moduleFilter) {
+        return false;
+    }
+
+    return true;
+}
+
+void MainWindow::ensureLogModuleOption(const QString &module)
+{
+    if (module.isEmpty() || m_knownLogModules.contains(module)) {
+        return;
+    }
+
+    m_knownLogModules.append(module);
+    ui->logModuleFilterComboBox->addItem(module);
 }
 
 void MainWindow::appendLog(const QString &message)
 {
-    ui->logPlainTextEdit->appendPlainText(QStringLiteral("[%1] %2").arg(utils::currentTimestamp(), message));
+    ui->logPlainTextEdit->appendPlainText(message);
 }
 
 void MainWindow::updateRecentRecordsTable(const QList<InspectionRecord> &records)
@@ -395,6 +478,33 @@ void MainWindow::updateRecentRecordsTable(const QList<InspectionRecord> &records
     }
 }
 
+void MainWindow::setRoiControls(const QRect &roi)
+{
+    const QSignalBlocker xBlocker(ui->roiXSpinBox);
+    const QSignalBlocker yBlocker(ui->roiYSpinBox);
+    const QSignalBlocker widthBlocker(ui->roiWidthSpinBox);
+    const QSignalBlocker heightBlocker(ui->roiHeightSpinBox);
+
+    if (roi.isValid() && !roi.isEmpty()) {
+        ui->roiXSpinBox->setValue(roi.x());
+        ui->roiYSpinBox->setValue(roi.y());
+        ui->roiWidthSpinBox->setValue(roi.width());
+        ui->roiHeightSpinBox->setValue(roi.height());
+    } else {
+        ui->roiXSpinBox->setValue(0);
+        ui->roiYSpinBox->setValue(0);
+        ui->roiWidthSpinBox->setValue(0);
+        ui->roiHeightSpinBox->setValue(0);
+    }
+
+    updateRoiSummary();
+}
+
+void MainWindow::updateRoiSummary()
+{
+    ui->roiValueLabel->setText(utils::formatRoi(collectRoi()));
+}
+
 void MainWindow::bindSignals()
 {
     connect(ui->importImageButton, &QPushButton::clicked, this, &MainWindow::onImportImageClicked);
@@ -410,6 +520,64 @@ void MainWindow::bindSignals()
         &QTableWidget::cellDoubleClicked,
         this,
         &MainWindow::onRecentRecordActivated);
+    connect(ui->roiXSpinBox, qOverload<int>(&QSpinBox::valueChanged), this, [this](int) { updateRoiSummary(); });
+    connect(ui->roiYSpinBox, qOverload<int>(&QSpinBox::valueChanged), this, [this](int) { updateRoiSummary(); });
+    connect(ui->roiWidthSpinBox, qOverload<int>(&QSpinBox::valueChanged), this, [this](int) {
+        updateRoiSummary();
+    });
+    connect(ui->roiHeightSpinBox, qOverload<int>(&QSpinBox::valueChanged), this, [this](int) {
+        updateRoiSummary();
+    });
+    connect(ui->clearRoiButton, &QPushButton::clicked, this, [this]() {
+        setRoiControls(QRect{});
+        m_controller->logManager().info(QStringLiteral("界面"), QStringLiteral("已清空 ROI 参数。"));
+    });
+    connect(ui->browseImageSavePathButton, &QPushButton::clicked, this, [this]() {
+        const QString currentPath = ui->imageSavePathLineEdit->text().trimmed();
+        const QString directory = QFileDialog::getExistingDirectory(
+            this,
+            tr("选择图片保存目录"),
+            currentPath.isEmpty() ? QString() : currentPath);
+        if (directory.isEmpty()) {
+            return;
+        }
+
+        ui->imageSavePathLineEdit->setText(directory);
+        m_controller->logManager().info(
+            QStringLiteral("界面"),
+            QStringLiteral("图片保存目录已更新：%1").arg(directory));
+    });
+    connect(
+        ui->logCaptureLevelComboBox,
+        &QComboBox::currentTextChanged,
+        this,
+        &MainWindow::onRuntimeLogLevelChanged);
+    connect(
+        ui->logLevelFilterComboBox,
+        &QComboBox::currentTextChanged,
+        this,
+        [this](const QString &) { onLogFilterChanged(); });
+    connect(
+        ui->logModuleFilterComboBox,
+        &QComboBox::currentTextChanged,
+        this,
+        [this](const QString &) { onLogFilterChanged(); });
+    connect(ui->clearLogButton, &QPushButton::clicked, this, [this]() {
+        m_uiLogEvents.clear();
+        refreshLogView();
+    });
+    connect(&m_controller->logManager(), &LogManager::uiLogGenerated, this, &MainWindow::onUiLogGenerated);
+    connect(
+        &m_controller->logManager(),
+        &LogManager::minimumLevelChanged,
+        this,
+        [this](const QString &levelName) {
+            const QSignalBlocker blocker(ui->logCaptureLevelComboBox);
+            ui->logCaptureLevelComboBox->setCurrentText(levelName);
+            statusBar()->showMessage(
+                tr("运行时日志级别已切换为 %1").arg(levelName),
+                3000);
+        });
 
     connect(m_controller, &AppController::detectionStarted, this, &MainWindow::onDetectionStarted);
     connect(m_controller, &AppController::detectionFinished, this, &MainWindow::onDetectionFinished);
@@ -445,6 +613,23 @@ void MainWindow::setupImageViews()
 void MainWindow::setupUiState()
 {
     ui->logPlainTextEdit->document()->setMaximumBlockCount(200);
+    ui->logCaptureLevelComboBox->addItems(
+        QStringList{QStringLiteral("DEBUG"),
+                    QStringLiteral("INFO"),
+                    QStringLiteral("WARN"),
+                    QStringLiteral("ERROR")});
+    ui->logCaptureLevelComboBox->setToolTip(
+        QStringLiteral("控制运行时实际采集的最低日志级别，会影响文件、控制台和界面日志源。"));
+    ui->logLevelFilterComboBox->addItems(
+        QStringList{QStringLiteral("全部"),
+                    QStringLiteral("DEBUG"),
+                    QStringLiteral("INFO"),
+                    QStringLiteral("WARN"),
+                    QStringLiteral("ERROR")});
+    ui->logLevelFilterComboBox->setToolTip(QStringLiteral("仅过滤当前界面显示，不影响日志采集。"));
+    ui->logModuleFilterComboBox->setToolTip(QStringLiteral("仅过滤当前界面显示，不影响日志采集。"));
+    ui->logModuleFilterComboBox->addItem(QStringLiteral("全部"));
+    m_knownLogModules = QStringList{QStringLiteral("全部")};
     ui->recentRecordsTableWidget->setColumnCount(5);
     ui->recentRecordsTableWidget->setHorizontalHeaderLabels(
         QStringList{QStringLiteral("时间"),
@@ -468,9 +653,11 @@ void MainWindow::setupUiState()
     ui->processTimeValueLabel->setText(QStringLiteral("--"));
     ui->currentImageValueLabel->setText(QStringLiteral("未选择"));
     ui->selectedRecordDetailValueLabel->setText(QStringLiteral("双击左侧历史记录可查看详情并回看原图。"));
+    ui->roiValueLabel->setText(QStringLiteral("未设置"));
     ui->bottomSplitter->setStretchFactor(0, 3);
     ui->bottomSplitter->setStretchFactor(1, 2);
     statusBar()->showMessage(tr("系统已启动"), 3000);
+    updateRoiSummary();
     onDetectionRunningChanged(false);
     syncTcpState();
 }
@@ -480,4 +667,25 @@ void MainWindow::syncTcpState()
     ui->tcpStatusValueLabel->setText(m_controller->tcpStatusText());
     ui->tcpConnectButton->setText(m_controller->isTcpConnected() ? QStringLiteral("断开连接")
                                                                   : QStringLiteral("连接 TCP"));
+}
+
+void MainWindow::onLogFilterChanged()
+{
+    refreshLogView();
+}
+
+void MainWindow::onRuntimeLogLevelChanged(const QString &levelName)
+{
+    m_controller->logManager().setMinimumLevelName(levelName);
+}
+
+void MainWindow::onUiLogGenerated(const LogEvent &event)
+{
+    m_uiLogEvents.append(event);
+    while (m_uiLogEvents.size() > kUiLogHistoryLimit) {
+        m_uiLogEvents.removeFirst();
+    }
+
+    ensureLogModuleOption(event.module);
+    refreshLogView();
 }

@@ -9,6 +9,7 @@
 
 struct DetectResult
 {
+    QString inspectionId;
     bool isOk = true;
     bool canceled = false;
     int defectCount = 0;

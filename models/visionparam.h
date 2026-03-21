@@ -2,6 +2,7 @@
 
 #include <QMetaType>
 #include <QRect>
+#include <QString>
 
 struct VisionParam
 {
@@ -10,6 +11,7 @@ struct VisionParam
     int maxArea = 1000;
     QRect roi;
     bool enableMorphology = false;
+    QString imageSavePath = QStringLiteral("data/images");
 };
 
 Q_DECLARE_METATYPE(VisionParam)

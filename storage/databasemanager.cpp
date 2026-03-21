@@ -62,9 +62,10 @@ QString DatabaseManager::createConnectionName(const QString &suffix) const
 bool DatabaseManager::ensureSchema(QSqlDatabase &database, QString *errorMessage) const
 {
     QSqlQuery query(database);
-    const bool ok = query.exec(QStringLiteral(
+    const bool tableOk = query.exec(QStringLiteral(
         "CREATE TABLE IF NOT EXISTS inspection_records ("
         "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "inspection_id TEXT,"
         "timestamp TEXT NOT NULL,"
         "batch_no TEXT,"
         "is_ok INTEGER NOT NULL,"
@@ -73,8 +74,56 @@ bool DatabaseManager::ensureSchema(QSqlDatabase &database, QString *errorMessage
         "image_path TEXT NOT NULL"
         ")"));
 
-    if (!ok && errorMessage != nullptr) {
+    if (!tableOk && errorMessage != nullptr) {
         *errorMessage = query.lastError().text();
+    }
+
+    if (!tableOk) {
+        return false;
+    }
+
+    const bool resultImageColumnOk = ensureColumnExists(
+        database,
+        QStringLiteral("result_image_path"),
+        QStringLiteral("TEXT"),
+        errorMessage);
+    if (!resultImageColumnOk) {
+        return false;
+    }
+
+    return ensureColumnExists(
+        database,
+        QStringLiteral("inspection_id"),
+        QStringLiteral("TEXT"),
+        errorMessage);
+}
+
+bool DatabaseManager::ensureColumnExists(
+    QSqlDatabase &database,
+    const QString &columnName,
+    const QString &columnDefinition,
+    QString *errorMessage) const
+{
+    QSqlQuery query(database);
+    if (!query.exec(QStringLiteral("PRAGMA table_info(inspection_records)"))) {
+        if (errorMessage != nullptr) {
+            *errorMessage = query.lastError().text();
+        }
+        return false;
+    }
+
+    while (query.next()) {
+        if (query.value(1).toString() == columnName) {
+            return true;
+        }
+    }
+
+    QSqlQuery alterQuery(database);
+    const bool ok = alterQuery.exec(
+        QStringLiteral("ALTER TABLE inspection_records ADD COLUMN %1 %2")
+            .arg(columnName, columnDefinition));
+    if (!ok && errorMessage != nullptr) {
+        *errorMessage = alterQuery.lastError().text();
     }
 
     return ok;

@@ -1,16 +1,24 @@
 #include "app/appcontroller.h"
 
 #include <QMetaType>
+#include <QUuid>
 
 #include "common/utils.h"
+#include "communication/tcpworker.h"
 #include "vision/detectionworker.h"
 
 AppController::AppController(QObject *parent)
     : QObject(parent)
-    , m_detectionWorker(new DetectionWorker)
+    , m_logManager(this)
+    , m_detectionWorker(new DetectionWorker(&m_logManager))
+    , m_persistenceWorker(new InspectionPersistenceWorker())
+    , m_tcpWorker(new TcpWorker())
 {
     qRegisterMetaType<VisionParam>("VisionParam");
     qRegisterMetaType<DetectResult>("DetectResult");
+    qRegisterMetaType<InspectionRecord>("InspectionRecord");
+    qRegisterMetaType<QImage>("QImage");
+    qRegisterMetaType<DeviceConfig>("DeviceConfig");
 
     m_detectionWorker->moveToThread(&m_detectionThread);
     connect(&m_detectionThread, &QThread::finished, m_detectionWorker, &QObject::deleteLater);
@@ -19,27 +27,66 @@ AppController::AppController(QObject *parent)
     connect(m_detectionWorker, &DetectionWorker::failed, this, &AppController::handleDetectionFailed);
     connect(m_detectionWorker, &DetectionWorker::canceled, this, &AppController::handleDetectionCanceled);
     m_detectionThread.start();
+
+    m_persistenceWorker->moveToThread(&m_persistenceThread);
+    connect(&m_persistenceThread, &QThread::finished, m_persistenceWorker, &QObject::deleteLater);
+    connect(this, &AppController::persistenceRequested, m_persistenceWorker, &InspectionPersistenceWorker::persist);
+    connect(
+        m_persistenceWorker,
+        &InspectionPersistenceWorker::persistenceCompleted,
+        this,
+        &AppController::handlePersistenceCompleted);
+    m_persistenceThread.start();
+
+    m_tcpWorker->moveToThread(&m_tcpThread);
+    connect(&m_tcpThread, &QThread::finished, m_tcpWorker, &QObject::deleteLater);
+    connect(this, &AppController::tcpConfigRequested, m_tcpWorker, &TcpWorker::applyDeviceConfigAsync);
+    connect(this, &AppController::tcpConnectRequested, m_tcpWorker, &TcpWorker::connectToDeviceAsync);
+    connect(this, &AppController::tcpDisconnectRequested, m_tcpWorker, &TcpWorker::disconnectFromDeviceAsync);
+    connect(this, &AppController::tcpSendRequested, m_tcpWorker, &TcpWorker::sendResultAsync);
+    connect(m_tcpWorker, &TcpWorker::deviceConfigApplied, this, &AppController::handleTcpConfigApplied);
+    connect(m_tcpWorker, &TcpWorker::connectCompleted, this, &AppController::handleTcpConnectCompleted);
+    connect(m_tcpWorker, &TcpWorker::disconnectCompleted, this, &AppController::handleTcpDisconnectCompleted);
+    connect(m_tcpWorker, &TcpWorker::sendCompleted, this, &AppController::handleTcpSendCompleted);
+    m_tcpThread.start();
 }
 
 AppController::~AppController()
 {
+    m_tcpThread.quit();
+    m_tcpThread.wait();
+    m_persistenceThread.quit();
+    m_persistenceThread.wait();
     m_detectionThread.quit();
     m_detectionThread.wait();
+}
+
+LogManager &AppController::logManager() noexcept
+{
+    return m_logManager;
+}
+
+const LogManager &AppController::logManager() const noexcept
+{
+    return m_logManager;
 }
 
 void AppController::initialize()
 {
     m_visionParam = m_configManager.loadVisionParam();
     m_deviceConfig = m_configManager.loadDeviceConfig();
+    m_logManager.setMinimumLevelName(m_configManager.loadLogLevel());
     m_configManager.saveVisionParam(m_visionParam);
     m_configManager.saveDeviceConfig(m_deviceConfig);
-    m_tcpManager.setDeviceConfig(m_deviceConfig);
+    m_configManager.saveLogLevel(m_logManager.minimumLevelName());
+    emit tcpConfigRequested(m_deviceConfig, false);
 
     QString databaseError;
     if (m_recordManager.initialize(&databaseError)) {
         m_logManager.info(
             QStringLiteral("记录"),
-            QStringLiteral("检测记录数据库已初始化：%1").arg(databaseFilePath()));
+            QStringLiteral("检测记录数据库已初始化：%1").arg(databaseFilePath()),
+            false);
     } else {
         m_logManager.warn(
             QStringLiteral("记录"),
@@ -58,18 +105,19 @@ void AppController::reloadConfig()
 {
     m_visionParam = m_configManager.loadVisionParam();
     m_deviceConfig = m_configManager.loadDeviceConfig();
-    m_tcpManager.setDeviceConfig(m_deviceConfig);
+    m_logManager.setMinimumLevelName(m_configManager.loadLogLevel());
+    emit tcpConfigRequested(m_deviceConfig, false);
     m_logManager.info(QStringLiteral("配置"), QStringLiteral("已从磁盘重新加载参数配置。"));
     updateStatus(QStringLiteral("已重新加载参数配置。"));
     emit visionParamChanged();
     emit deviceConfigChanged();
-    emit tcpStateChanged();
 }
 
 void AppController::saveCurrentParam()
 {
     m_configManager.saveVisionParam(m_visionParam);
     m_configManager.saveDeviceConfig(m_deviceConfig);
+    m_configManager.saveLogLevel(m_logManager.minimumLevelName());
     m_logManager.info(QStringLiteral("配置"), QStringLiteral("当前参数与通信配置已保存到磁盘。"));
     updateStatus(QStringLiteral("配置已保存到：%1").arg(configFilePath()));
 }
@@ -78,15 +126,15 @@ void AppController::resetToDefaults()
 {
     m_visionParam = VisionParam{};
     m_deviceConfig = DeviceConfig{};
-    m_tcpManager.disconnectFromDevice();
-    m_tcpManager.setDeviceConfig(m_deviceConfig);
+    m_logManager.setMinimumLevelName(QStringLiteral("INFO"));
+    emit tcpConfigRequested(m_deviceConfig, true);
     m_configManager.saveVisionParam(m_visionParam);
     m_configManager.saveDeviceConfig(m_deviceConfig);
+    m_configManager.saveLogLevel(m_logManager.minimumLevelName());
     m_logManager.info(QStringLiteral("配置"), QStringLiteral("参数与通信配置已恢复默认值。"));
     updateStatus(QStringLiteral("配置已重置为默认值。"));
     emit visionParamChanged();
     emit deviceConfigChanged();
-    emit tcpStateChanged();
 }
 
 void AppController::setVisionParam(const VisionParam &param)
@@ -98,9 +146,8 @@ void AppController::setVisionParam(const VisionParam &param)
 void AppController::setDeviceConfig(const DeviceConfig &config)
 {
     m_deviceConfig = config;
-    m_tcpManager.setDeviceConfig(m_deviceConfig);
+    emit tcpConfigRequested(m_deviceConfig, false);
     emit deviceConfigChanged();
-    emit tcpStateChanged();
 }
 
 bool AppController::startDetection(const QString &imagePath)
@@ -119,14 +166,17 @@ bool AppController::startDetection(const QString &imagePath)
         return false;
     }
 
+    m_activeInspectionId = QUuid::createUuid().toString(QUuid::WithoutBraces);
     m_detectionWorker->resetCancellation();
     m_isDetectionRunning = true;
     m_isDetectionCancelRequested = false;
-    m_logManager.info(QStringLiteral("检测"), QStringLiteral("检测任务已提交到工作线程：%1").arg(imagePath));
-    updateStatus(QStringLiteral("检测任务已提交，正在后台执行。"));
+    m_logManager.info(
+        QStringLiteral("检测"),
+        QStringLiteral("检测任务已提交：id=%1 path=%2").arg(m_activeInspectionId, imagePath));
+    updateStatus(QStringLiteral("检测任务已提交，编号：%1").arg(m_activeInspectionId));
     emit detectionStarted();
     emit detectionRunningChanged(true);
-    emit detectionRequested(imagePath, m_visionParam);
+    emit detectionRequested(m_activeInspectionId, imagePath, m_visionParam);
     return true;
 }
 
@@ -144,40 +194,74 @@ bool AppController::cancelDetection()
 
     m_isDetectionCancelRequested = true;
     m_detectionWorker->requestCancel();
-    m_logManager.warn(QStringLiteral("检测"), QStringLiteral("已请求取消当前检测任务。"));
-    updateStatus(QStringLiteral("正在取消检测任务，请稍候。"));
+    m_logManager.warn(
+        QStringLiteral("检测"),
+        m_activeInspectionId.isEmpty() ? QStringLiteral("已请求取消当前检测任务。")
+                                       : QStringLiteral("已请求取消当前检测任务：id=%1")
+                                             .arg(m_activeInspectionId));
+    updateStatus(
+        m_activeInspectionId.isEmpty() ? QStringLiteral("正在取消检测任务，请稍候。")
+                                       : QStringLiteral("正在取消检测任务，编号：%1").arg(m_activeInspectionId));
     emit detectionRunningChanged(true);
     return true;
 }
 
 bool AppController::connectTcpDevice()
 {
-    m_tcpManager.setDeviceConfig(m_deviceConfig);
-    const bool ok = m_tcpManager.connectToDevice();
-
-    if (ok) {
-        m_logManager.info(
-            QStringLiteral("通信"),
-            QStringLiteral("TCP 已连接：%1").arg(m_tcpManager.peerDescription()));
-        updateStatus(QStringLiteral("TCP 已连接：%1").arg(m_tcpManager.peerDescription()));
-    } else {
-        m_logManager.warn(
-            QStringLiteral("通信"),
-            QStringLiteral("TCP 连接失败：%1").arg(m_tcpManager.lastError()));
-        updateStatus(QStringLiteral("TCP 连接失败：%1").arg(m_tcpManager.lastError()));
+    if (m_tcpOperationState != TcpOperationState::Idle) {
+        updateStatus(QStringLiteral("TCP 正在处理其他操作，请稍候。"));
+        return false;
     }
 
+    const QString host = m_deviceConfig.ip.trimmed();
+    if (host.isEmpty() || m_deviceConfig.port <= 0) {
+        const QString error = QStringLiteral("TCP 配置无效，请检查 IP 和端口。");
+        m_logManager.warn(QStringLiteral("通信"), error);
+        m_tcpStatusText = QStringLiteral("未连接（%1）").arg(error);
+        updateStatus(error);
+        emit tcpStateChanged();
+        return false;
+    }
+
+    if (m_isTcpConnected) {
+        updateStatus(QStringLiteral("TCP 已连接：%1:%2").arg(host).arg(m_deviceConfig.port));
+        return true;
+    }
+
+    m_tcpOperationState = TcpOperationState::Connecting;
+    m_isTcpConnected = false;
+    m_tcpStatusText = QStringLiteral("连接中 %1:%2").arg(host).arg(m_deviceConfig.port);
+    m_logManager.info(
+        QStringLiteral("通信"),
+        QStringLiteral("已提交 TCP 连接请求：%1:%2").arg(host).arg(m_deviceConfig.port));
+    updateStatus(QStringLiteral("正在连接 TCP：%1:%2").arg(host).arg(m_deviceConfig.port));
     emit tcpStateChanged();
-    return ok;
+    emit tcpConnectRequested(m_deviceConfig);
+    return true;
 }
 
 void AppController::disconnectTcpDevice()
 {
-    const QString peer = m_tcpManager.peerDescription();
-    m_tcpManager.disconnectFromDevice();
-    m_logManager.info(QStringLiteral("通信"), QStringLiteral("TCP 已断开：%1").arg(peer));
-    updateStatus(QStringLiteral("TCP 已断开。"));
+    if (m_tcpOperationState != TcpOperationState::Idle) {
+        updateStatus(QStringLiteral("TCP 正在处理其他操作，请稍候。"));
+        return;
+    }
+
+    if (!m_isTcpConnected) {
+        updateStatus(QStringLiteral("TCP 当前未连接。"));
+        return;
+    }
+
+    const QString peerDescription = QStringLiteral("%1:%2").arg(m_deviceConfig.ip).arg(m_deviceConfig.port);
+    m_tcpOperationState = TcpOperationState::Disconnecting;
+    m_isTcpConnected = false;
+    m_tcpStatusText = QStringLiteral("断开中 %1").arg(peerDescription);
+    m_logManager.info(
+        QStringLiteral("通信"),
+        QStringLiteral("已提交 TCP 断开请求：%1").arg(peerDescription));
+    updateStatus(QStringLiteral("正在断开 TCP：%1").arg(peerDescription));
     emit tcpStateChanged();
+    emit tcpDisconnectRequested();
 }
 
 QList<InspectionRecord> AppController::recentRecords(int limit) const
@@ -187,10 +271,37 @@ QList<InspectionRecord> AppController::recentRecords(int limit) const
     if (!errorMessage.isEmpty()) {
         m_logManager.warn(
             QStringLiteral("记录"),
-            QStringLiteral("读取最近记录失败：%1").arg(errorMessage));
+            QStringLiteral("读取最近记录失败：%1").arg(errorMessage),
+            false);
     }
 
     return records;
+}
+
+bool AppController::lookupRecordByInspectionId(
+    const QString &inspectionId,
+    InspectionRecord *record,
+    QString *errorMessage) const
+{
+    const bool found = m_recordManager.lookupRecordByInspectionId(inspectionId, record, errorMessage);
+    if (!found && errorMessage != nullptr && !errorMessage->isEmpty()) {
+        m_logManager.warn(
+            QStringLiteral("记录"),
+            QStringLiteral("按检测编号查询记录失败：id=%1 %2").arg(inspectionId, *errorMessage),
+            false);
+    }
+
+    return found;
+}
+
+QString AppController::activeInspectionId() const
+{
+    return m_activeInspectionId;
+}
+
+QString AppController::lastCompletedInspectionId() const
+{
+    return m_lastCompletedInspectionId;
 }
 
 const VisionParam &AppController::visionParam() const noexcept
@@ -215,7 +326,7 @@ QString AppController::databaseFilePath() const
 
 QString AppController::projectStage() const
 {
-    return QStringLiteral("阶段 2 / 异步单图检测闭环（支持取消）");
+    return QStringLiteral("阶段 3 / 检测留存闭环（支持归档）");
 }
 
 QString AppController::statusMessage() const
@@ -225,12 +336,17 @@ QString AppController::statusMessage() const
 
 QString AppController::tcpStatusText() const
 {
-    return m_tcpManager.statusText();
+    return m_tcpStatusText;
 }
 
 bool AppController::isTcpConnected() const
 {
-    return m_tcpManager.isConnected();
+    return m_isTcpConnected;
+}
+
+bool AppController::isTcpOperationPending() const noexcept
+{
+    return m_tcpOperationState != TcpOperationState::Idle;
 }
 
 bool AppController::isDetectionRunning() const noexcept
@@ -257,79 +373,185 @@ void AppController::handleDetectionCompleted(const DetectResult &result, const Q
 {
     m_isDetectionRunning = false;
     m_isDetectionCancelRequested = false;
+    m_lastCompletedInspectionId = result.inspectionId;
+    m_activeInspectionId.clear();
 
     m_logManager.info(
         QStringLiteral("检测"),
-        QStringLiteral("检测完成，result=%1, defects=%2, time=%3 ms")
+        QStringLiteral("检测完成：id=%1 result=%2 defects=%3 time=%4 ms")
+            .arg(result.inspectionId)
             .arg(utils::boolToResultText(result.isOk))
             .arg(result.defectCount)
             .arg(result.processTimeMs, 0, 'f', 2));
+    m_logManager.info(
+        QStringLiteral("检测"),
+        QStringLiteral("检测结论：id=%1 %2").arg(result.inspectionId).arg(result.message));
 
     updateStatus(
         QStringLiteral("检测完成：%1，缺陷 %2 处，耗时 %3 ms")
             .arg(utils::boolToResultText(result.isOk))
             .arg(result.defectCount)
             .arg(result.processTimeMs, 0, 'f', 2));
-
-    InspectionRecord record;
-    record.timestamp = utils::currentTimestamp();
-    record.batchNo = QStringLiteral("LOCAL");
-    record.isOk = result.isOk;
-    record.defectCount = result.defectCount;
-    record.processTimeMs = result.processTimeMs;
-    record.imagePath = result.imagePath;
-
-    QString recordError;
-    if (m_recordManager.saveRecord(record, &recordError)) {
-        m_logManager.info(QStringLiteral("记录"), QStringLiteral("检测记录已写入 SQLite。"));
-        emit recordsChanged();
-    } else {
-        m_logManager.warn(
-            QStringLiteral("记录"),
-            QStringLiteral("检测记录保存失败：%1").arg(recordError));
-    }
-
-    if (m_tcpManager.hasValidConfig()) {
-        if (m_tcpManager.sendResult(result.isOk)) {
-            m_logManager.info(
-                QStringLiteral("通信"),
-                QStringLiteral("已发送检测结果到 %1：%2，回执：%3")
-                    .arg(m_tcpManager.peerDescription(),
-                         utils::boolToResultText(result.isOk),
-                         m_tcpManager.lastReply()));
-            updateStatus(
-                QStringLiteral("检测完成：%1，TCP 回执：%2")
-                    .arg(utils::boolToResultText(result.isOk), m_tcpManager.lastReply()));
-            emit tcpStateChanged();
-        } else {
-            m_logManager.warn(
-                QStringLiteral("通信"),
-                QStringLiteral("TCP 结果发送失败：%1").arg(m_tcpManager.lastError()));
-            updateStatus(QStringLiteral("检测完成，但 TCP 结果发送失败：%1").arg(m_tcpManager.lastError()));
-            emit tcpStateChanged();
-        }
+    emit persistenceRequested(result, resultImage, m_visionParam);
+    if (m_isTcpConnected) {
+        emit tcpSendRequested(result.inspectionId, result.isOk);
     }
 
     emit detectionFinished(result, resultImage);
     emit detectionRunningChanged(false);
 }
 
+void AppController::handlePersistenceCompleted(
+    const InspectionRecord &record,
+    bool archiveSucceeded,
+    const QString &archiveMessage,
+    bool recordSaved,
+    const QString &recordError)
+{
+    if (archiveSucceeded) {
+        m_logManager.info(
+            QStringLiteral("记录"),
+            QStringLiteral("检测图片已归档：id=%1 %2").arg(record.inspectionId).arg(archiveMessage),
+            false);
+    } else {
+        m_logManager.warn(
+            QStringLiteral("记录"),
+            QStringLiteral("检测图片归档失败：id=%1 %2").arg(record.inspectionId).arg(archiveMessage),
+            false);
+    }
+
+    if (recordSaved) {
+        m_logManager.info(
+            QStringLiteral("记录"),
+            QStringLiteral("检测记录已写入 SQLite：id=%1 timestamp=%2")
+                .arg(record.inspectionId)
+                .arg(record.timestamp),
+            false);
+        emit recordsChanged();
+        return;
+    }
+
+    m_logManager.warn(
+        QStringLiteral("记录"),
+        QStringLiteral("检测记录保存失败：id=%1 %2").arg(record.inspectionId).arg(recordError));
+    if (!m_isDetectionRunning) {
+        updateStatus(QStringLiteral("检测完成，但记录保存失败：%1").arg(recordError));
+    }
+}
+
+void AppController::handleTcpSendCompleted(
+    const QString &inspectionId,
+    bool success,
+    const QString &reply,
+    const QString &error,
+    const QString &peerDescription,
+    const QString &statusText,
+    bool connected)
+{
+    m_isTcpConnected = connected;
+    m_tcpStatusText = statusText;
+
+    if (success) {
+        m_logManager.info(
+            QStringLiteral("通信"),
+            QStringLiteral("检测结果已异步发送：id=%1 peer=%2 reply=%3")
+                .arg(inspectionId)
+                .arg(peerDescription)
+                .arg(reply));
+        if (!m_isDetectionRunning) {
+            updateStatus(QStringLiteral("检测结果已发送，TCP 回执：%1").arg(reply));
+        }
+    } else {
+        m_logManager.warn(
+            QStringLiteral("通信"),
+            QStringLiteral("TCP 结果发送失败：id=%1 peer=%2 error=%3")
+                .arg(inspectionId)
+                .arg(peerDescription)
+                .arg(error));
+        if (!m_isDetectionRunning) {
+            updateStatus(QStringLiteral("检测完成，但 TCP 结果发送失败：%1").arg(error));
+        }
+    }
+
+    emit tcpStateChanged();
+}
+
+void AppController::handleTcpConnectCompleted(
+    bool success,
+    const QString &error,
+    const QString &peerDescription,
+    const QString &statusText,
+    bool connected)
+{
+    m_tcpOperationState = TcpOperationState::Idle;
+    m_isTcpConnected = connected;
+    m_tcpStatusText = statusText;
+
+    if (success) {
+        m_logManager.info(
+            QStringLiteral("通信"),
+            QStringLiteral("TCP 已异步连接：%1").arg(peerDescription));
+        updateStatus(QStringLiteral("TCP 已连接：%1").arg(peerDescription));
+    } else {
+        m_logManager.warn(
+            QStringLiteral("通信"),
+            QStringLiteral("TCP 异步连接失败：%1").arg(error));
+        updateStatus(QStringLiteral("TCP 连接失败：%1").arg(error));
+    }
+
+    emit tcpStateChanged();
+}
+
+void AppController::handleTcpConfigApplied(const QString &statusText, bool connected)
+{
+    m_isTcpConnected = connected;
+    m_tcpStatusText = statusText;
+    emit tcpStateChanged();
+}
+
+void AppController::handleTcpDisconnectCompleted(
+    const QString &peerDescription,
+    const QString &statusText,
+    bool connected)
+{
+    m_tcpOperationState = TcpOperationState::Idle;
+    m_isTcpConnected = connected;
+    m_tcpStatusText = statusText;
+    m_logManager.info(QStringLiteral("通信"), QStringLiteral("TCP 已异步断开：%1").arg(peerDescription));
+    updateStatus(QStringLiteral("TCP 已断开。"));
+    emit tcpStateChanged();
+}
+
 void AppController::handleDetectionFailed(const QString &errorMessage)
 {
+    const QString inspectionId = m_activeInspectionId;
     m_isDetectionRunning = false;
     m_isDetectionCancelRequested = false;
-    m_logManager.error(QStringLiteral("检测"), errorMessage);
-    updateStatus(QStringLiteral("检测失败：%1").arg(errorMessage));
+    m_activeInspectionId.clear();
+    m_logManager.error(
+        QStringLiteral("检测"),
+        inspectionId.isEmpty() ? errorMessage
+                               : QStringLiteral("id=%1 %2").arg(inspectionId, errorMessage));
+    updateStatus(
+        inspectionId.isEmpty() ? QStringLiteral("检测失败：%1").arg(errorMessage)
+                               : QStringLiteral("检测失败：%1（编号：%2）").arg(errorMessage, inspectionId));
     emit detectionFailed(errorMessage);
     emit detectionRunningChanged(false);
 }
 
 void AppController::handleDetectionCanceled()
 {
+    const QString inspectionId = m_activeInspectionId;
     m_isDetectionRunning = false;
     m_isDetectionCancelRequested = false;
-    m_logManager.warn(QStringLiteral("检测"), QStringLiteral("检测任务已取消。"));
-    updateStatus(QStringLiteral("检测任务已取消。"));
+    m_activeInspectionId.clear();
+    m_logManager.warn(
+        QStringLiteral("检测"),
+        inspectionId.isEmpty() ? QStringLiteral("检测任务已取消。")
+                               : QStringLiteral("检测任务已取消：id=%1").arg(inspectionId));
+    updateStatus(
+        inspectionId.isEmpty() ? QStringLiteral("检测任务已取消。")
+                               : QStringLiteral("检测任务已取消，编号：%1").arg(inspectionId));
     emit detectionCanceled();
     emit detectionRunningChanged(false);
 }

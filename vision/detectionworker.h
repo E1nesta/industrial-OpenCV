@@ -8,18 +8,20 @@
 #include "models/detectresult.h"
 #include "models/visionparam.h"
 
+class LogManager;
+
 class DetectionWorker : public QObject
 {
     Q_OBJECT
 
 public:
-    explicit DetectionWorker(QObject *parent = nullptr);
+    explicit DetectionWorker(LogManager *logManager, QObject *parent = nullptr);
 
     void resetCancellation();
     void requestCancel();
 
 public slots:
-    void process(const QString &imagePath, const VisionParam &param);
+    void process(const QString &inspectionId, const QString &imagePath, const VisionParam &param);
 
 signals:
     void completed(const DetectResult &result, const QImage &resultImage);
@@ -27,5 +29,6 @@ signals:
     void canceled();
 
 private:
+    LogManager *m_logManager = nullptr;
     std::atomic_bool m_cancelRequested = false;
 };

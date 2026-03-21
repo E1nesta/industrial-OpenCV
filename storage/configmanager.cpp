@@ -24,6 +24,7 @@ VisionParam ConfigManager::loadVisionParam() const
     param.minArea = settings.value("minArea", param.minArea).toInt();
     param.maxArea = settings.value("maxArea", param.maxArea).toInt();
     param.enableMorphology = settings.value("enableMorphology", param.enableMorphology).toBool();
+    param.imageSavePath = settings.value("imageSavePath", param.imageSavePath).toString();
 
     const int roiX = settings.value("roiX", 0).toInt();
     const int roiY = settings.value("roiY", 0).toInt();
@@ -45,9 +46,24 @@ DeviceConfig ConfigManager::loadDeviceConfig() const
     config.port = settings.value("port", config.port).toInt();
     config.comName = settings.value("comName", config.comName).toString();
     config.baudRate = settings.value("baudRate", config.baudRate).toInt();
+    config.tcpConnectTimeoutMs =
+        settings.value("tcpConnectTimeoutMs", config.tcpConnectTimeoutMs).toInt();
+    config.tcpSendTimeoutMs =
+        settings.value("tcpSendTimeoutMs", config.tcpSendTimeoutMs).toInt();
+    config.tcpSendRetryCount =
+        settings.value("tcpSendRetryCount", config.tcpSendRetryCount).toInt();
     settings.endGroup();
 
     return config;
+}
+
+QString ConfigManager::loadLogLevel() const
+{
+    QSettings settings(resolvedConfigPath(), QSettings::IniFormat);
+    settings.beginGroup("logger");
+    const QString levelName = settings.value("minimumLevel", QStringLiteral("INFO")).toString();
+    settings.endGroup();
+    return levelName;
 }
 
 void ConfigManager::saveVisionParam(const VisionParam &param) const
@@ -61,6 +77,7 @@ void ConfigManager::saveVisionParam(const VisionParam &param) const
     settings.setValue("minArea", param.minArea);
     settings.setValue("maxArea", param.maxArea);
     settings.setValue("enableMorphology", param.enableMorphology);
+    settings.setValue("imageSavePath", param.imageSavePath);
     settings.setValue("roiX", param.roi.x());
     settings.setValue("roiY", param.roi.y());
     settings.setValue("roiWidth", param.roi.width());
@@ -80,6 +97,21 @@ void ConfigManager::saveDeviceConfig(const DeviceConfig &config) const
     settings.setValue("port", config.port);
     settings.setValue("comName", config.comName);
     settings.setValue("baudRate", config.baudRate);
+    settings.setValue("tcpConnectTimeoutMs", config.tcpConnectTimeoutMs);
+    settings.setValue("tcpSendTimeoutMs", config.tcpSendTimeoutMs);
+    settings.setValue("tcpSendRetryCount", config.tcpSendRetryCount);
+    settings.endGroup();
+    settings.sync();
+}
+
+void ConfigManager::saveLogLevel(const QString &levelName) const
+{
+    const QString filePath = resolvedConfigPath();
+    QDir().mkpath(QFileInfo(filePath).absolutePath());
+
+    QSettings settings(filePath, QSettings::IniFormat);
+    settings.beginGroup("logger");
+    settings.setValue("minimumLevel", levelName);
     settings.endGroup();
     settings.sync();
 }

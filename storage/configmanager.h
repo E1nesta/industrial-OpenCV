@@ -12,8 +12,10 @@ public:
 
     VisionParam loadVisionParam() const;
     DeviceConfig loadDeviceConfig() const;
+    QString loadLogLevel() const;
     void saveVisionParam(const VisionParam &param) const;
     void saveDeviceConfig(const DeviceConfig &config) const;
+    void saveLogLevel(const QString &levelName) const;
     QString configFilePath() const;
 
 private:

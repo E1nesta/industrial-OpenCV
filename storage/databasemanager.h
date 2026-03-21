@@ -15,6 +15,11 @@ public:
 
 private:
     bool ensureSchema(QSqlDatabase &database, QString *errorMessage = nullptr) const;
+    bool ensureColumnExists(
+        QSqlDatabase &database,
+        const QString &columnName,
+        const QString &columnDefinition,
+        QString *errorMessage = nullptr) const;
     QString resolvedDatabasePath() const;
 
     QString m_databasePath;

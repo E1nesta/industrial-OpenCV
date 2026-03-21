@@ -165,11 +165,16 @@ set(PROJECT_SOURCES
     camera/cameramanager.cpp
     communication/tcpmanager.h
     communication/tcpmanager.cpp
+    communication/tcpworker.h
+    communication/tcpworker.cpp
     common/constants.h
     common/utils.h
     common/utils.cpp
+    logger/logevent.h
     logger/logmanager.h
     logger/logmanager.cpp
+    logger/logworker.h
+    logger/logworker.cpp
     models/deviceconfig.h
     models/detectresult.h
     models/inspectionrecord.h
@@ -178,6 +183,8 @@ set(PROJECT_SOURCES
     storage/configmanager.cpp
     storage/databasemanager.h
     storage/databasemanager.cpp
+    storage/inspectionpersistenceworker.h
+    storage/inspectionpersistenceworker.cpp
     storage/recordmanager.h
     storage/recordmanager.cpp
     ui/imageviewwidget.h

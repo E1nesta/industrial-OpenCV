@@ -5,6 +5,7 @@
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QSqlQuery>
+#include <QMutexLocker>
 
 RecordManager::RecordManager(QString databasePath)
     : m_databaseManager(std::move(databasePath))
@@ -13,7 +14,21 @@ RecordManager::RecordManager(QString databasePath)
 
 bool RecordManager::initialize(QString *errorMessage) const
 {
-    return m_databaseManager.initialize(errorMessage);
+    if (errorMessage != nullptr) {
+        errorMessage->clear();
+    }
+
+    QMutexLocker locker(&m_initializeMutex);
+    if (m_isInitialized) {
+        return true;
+    }
+
+    const bool ok = m_databaseManager.initialize(errorMessage);
+    if (ok) {
+        m_isInitialized = true;
+    }
+
+    return ok;
 }
 
 bool RecordManager::saveRecord(const InspectionRecord &record, QString *errorMessage) const
@@ -31,11 +46,17 @@ bool RecordManager::saveRecord(const InspectionRecord &record, QString *errorMes
             QSqlQuery query(database);
             query.prepare(QStringLiteral(
                 "INSERT INTO inspection_records "
-                "(inspection_id, timestamp, batch_no, is_ok, defect_count, process_time_ms, image_path, result_image_path) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)"));
+                "(inspection_id, capture_id, timestamp, batch_no, source_type, source_path, source_name, frame_index, "
+                "is_ok, defect_count, process_time_ms, image_path, result_image_path) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"));
             query.addBindValue(record.inspectionId);
+            query.addBindValue(record.captureId);
             query.addBindValue(record.timestamp);
             query.addBindValue(record.batchNo);
+            query.addBindValue(inputSourceTypeToString(record.sourceType));
+            query.addBindValue(record.sourcePath);
+            query.addBindValue(record.sourceName);
+            query.addBindValue(record.frameIndex);
             query.addBindValue(record.isOk ? 1 : 0);
             query.addBindValue(record.defectCount);
             query.addBindValue(record.processTimeMs);
@@ -93,7 +114,8 @@ bool RecordManager::lookupRecordByInspectionId(
         if (database.isOpen()) {
             QSqlQuery query(database);
             query.prepare(QStringLiteral(
-                "SELECT inspection_id, timestamp, batch_no, is_ok, defect_count, process_time_ms, image_path, result_image_path "
+                "SELECT inspection_id, capture_id, timestamp, batch_no, source_type, source_path, source_name, frame_index, "
+                "is_ok, defect_count, process_time_ms, image_path, result_image_path "
                 "FROM inspection_records "
                 "WHERE inspection_id = ? "
                 "ORDER BY id DESC LIMIT 1"));
@@ -102,13 +124,18 @@ bool RecordManager::lookupRecordByInspectionId(
             if (query.exec()) {
                 if (query.next()) {
                     record->inspectionId = query.value(0).toString();
-                    record->timestamp = query.value(1).toString();
-                    record->batchNo = query.value(2).toString();
-                    record->isOk = query.value(3).toInt() != 0;
-                    record->defectCount = query.value(4).toInt();
-                    record->processTimeMs = query.value(5).toDouble();
-                    record->imagePath = query.value(6).toString();
-                    record->resultImagePath = query.value(7).toString();
+                    record->captureId = query.value(1).toString();
+                    record->timestamp = query.value(2).toString();
+                    record->batchNo = query.value(3).toString();
+                    record->sourceType = inputSourceTypeFromString(query.value(4).toString());
+                    record->sourcePath = query.value(5).toString();
+                    record->sourceName = query.value(6).toString();
+                    record->frameIndex = query.value(7).toLongLong();
+                    record->isOk = query.value(8).toInt() != 0;
+                    record->defectCount = query.value(9).toInt();
+                    record->processTimeMs = query.value(10).toDouble();
+                    record->imagePath = query.value(11).toString();
+                    record->resultImagePath = query.value(12).toString();
                     found = true;
                 }
             } else if (errorMessage != nullptr) {
@@ -136,7 +163,8 @@ QList<InspectionRecord> RecordManager::recentRecords(int limit, QString *errorMe
         if (database.isOpen()) {
             QSqlQuery query(database);
             query.prepare(QStringLiteral(
-                "SELECT inspection_id, timestamp, batch_no, is_ok, defect_count, process_time_ms, image_path, result_image_path "
+                "SELECT inspection_id, capture_id, timestamp, batch_no, source_type, source_path, source_name, frame_index, "
+                "is_ok, defect_count, process_time_ms, image_path, result_image_path "
                 "FROM inspection_records "
                 "ORDER BY id DESC LIMIT ?"));
             query.addBindValue(limit);
@@ -145,13 +173,18 @@ QList<InspectionRecord> RecordManager::recentRecords(int limit, QString *errorMe
                 while (query.next()) {
                     InspectionRecord record;
                     record.inspectionId = query.value(0).toString();
-                    record.timestamp = query.value(1).toString();
-                    record.batchNo = query.value(2).toString();
-                    record.isOk = query.value(3).toInt() != 0;
-                    record.defectCount = query.value(4).toInt();
-                    record.processTimeMs = query.value(5).toDouble();
-                    record.imagePath = query.value(6).toString();
-                    record.resultImagePath = query.value(7).toString();
+                    record.captureId = query.value(1).toString();
+                    record.timestamp = query.value(2).toString();
+                    record.batchNo = query.value(3).toString();
+                    record.sourceType = inputSourceTypeFromString(query.value(4).toString());
+                    record.sourcePath = query.value(5).toString();
+                    record.sourceName = query.value(6).toString();
+                    record.frameIndex = query.value(7).toLongLong();
+                    record.isOk = query.value(8).toInt() != 0;
+                    record.defectCount = query.value(9).toInt();
+                    record.processTimeMs = query.value(10).toDouble();
+                    record.imagePath = query.value(11).toString();
+                    record.resultImagePath = query.value(12).toString();
                     records.append(record);
                 }
             } else if (errorMessage != nullptr) {

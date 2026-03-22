@@ -1,22 +1,22 @@
 #pragma once
 
 #include <QMetaType>
+#include <QRect>
 #include <QString>
+#include <QVector>
 
-#include <opencv2/core/types.hpp>
-
-#include <vector>
+#include "models/capturedframe.h"
 
 struct DetectResult
 {
     QString inspectionId;
+    FrameMeta frameMeta;
     bool isOk = true;
     bool canceled = false;
     int defectCount = 0;
     double processTimeMs = 0.0;
-    QString imagePath;
     QString message;
-    std::vector<cv::Rect> defectRects;
+    QVector<QRect> defectRects;
 };
 
 Q_DECLARE_METATYPE(DetectResult)

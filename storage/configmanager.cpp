@@ -57,6 +57,28 @@ DeviceConfig ConfigManager::loadDeviceConfig() const
     return config;
 }
 
+InputSourceConfig ConfigManager::loadInputSourceConfig() const
+{
+    InputSourceConfig config;
+    QSettings settings(resolvedConfigPath(), QSettings::IniFormat);
+
+    settings.beginGroup("input");
+    config.type = inputSourceTypeFromString(
+        settings.value("type", inputSourceTypeToString(config.type)).toString());
+    config.sourcePath = settings.value("sourcePath", config.sourcePath).toString();
+    config.sourceName = settings.value("sourceName", config.sourceName).toString();
+    config.deviceIndex = settings.value("deviceIndex", config.deviceIndex).toInt();
+    config.previewIntervalMs =
+        settings.value("previewIntervalMs", config.previewIntervalMs).toInt();
+    settings.endGroup();
+
+    if (config.type == InputSourceType::Camera && config.sourceName.trimmed().isEmpty()) {
+        config.sourceName = QStringLiteral("camera-%1").arg(config.deviceIndex);
+    }
+
+    return config;
+}
+
 QString ConfigManager::loadLogLevel() const
 {
     QSettings settings(resolvedConfigPath(), QSettings::IniFormat);
@@ -100,6 +122,22 @@ void ConfigManager::saveDeviceConfig(const DeviceConfig &config) const
     settings.setValue("tcpConnectTimeoutMs", config.tcpConnectTimeoutMs);
     settings.setValue("tcpSendTimeoutMs", config.tcpSendTimeoutMs);
     settings.setValue("tcpSendRetryCount", config.tcpSendRetryCount);
+    settings.endGroup();
+    settings.sync();
+}
+
+void ConfigManager::saveInputSourceConfig(const InputSourceConfig &config) const
+{
+    const QString filePath = resolvedConfigPath();
+    QDir().mkpath(QFileInfo(filePath).absolutePath());
+
+    QSettings settings(filePath, QSettings::IniFormat);
+    settings.beginGroup("input");
+    settings.setValue("type", inputSourceTypeToString(config.type));
+    settings.setValue("sourcePath", config.sourcePath);
+    settings.setValue("sourceName", config.sourceName);
+    settings.setValue("deviceIndex", config.deviceIndex);
+    settings.setValue("previewIntervalMs", config.previewIntervalMs);
     settings.endGroup();
     settings.sync();
 }

@@ -1,13 +1,32 @@
 #include "common/utils.h"
 
+#include <algorithm>
+#include <cmath>
 #include <string>
 
 #include <QDateTime>
+#include <QDebug>
 
 #include <opencv2/imgproc.hpp>
 
 namespace utils
 {
+namespace
+{
+QRect scaledRoi(const QRect &roi, double scale)
+{
+    if (!roi.isValid() || roi.isEmpty()) {
+        return {};
+    }
+
+    return QRect(
+        static_cast<int>(std::lround(roi.x() * scale)),
+        static_cast<int>(std::lround(roi.y() * scale)),
+        static_cast<int>(std::lround(roi.width() * scale)),
+        static_cast<int>(std::lround(roi.height() * scale)));
+}
+} // namespace
+
 QString boolToResultText(bool isOk)
 {
     return isOk ? QStringLiteral("OK") : QStringLiteral("NG");
@@ -33,28 +52,122 @@ QString currentTimestamp()
 
 QImage matToQImage(const cv::Mat &mat)
 {
+    try {
+        if (mat.empty()) {
+            return {};
+        }
+
+        switch (mat.type()) {
+        case CV_8UC1: {
+            QImage image(
+                mat.data,
+                mat.cols,
+                mat.rows,
+                static_cast<qsizetype>(mat.step),
+                QImage::Format_Grayscale8);
+            return image.copy();
+        }
+        case CV_8UC3: {
+            QImage image(
+                mat.data,
+                mat.cols,
+                mat.rows,
+                static_cast<qsizetype>(mat.step),
+                QImage::Format_BGR888);
+            return image.copy();
+        }
+        case CV_8UC4: {
+            QImage image(mat.data, mat.cols, mat.rows, static_cast<qsizetype>(mat.step), QImage::Format_ARGB32);
+            return image.copy();
+        }
+        default:
+            qWarning().noquote()
+                << QStringLiteral("[utils] matToQImage unsupported type=%1 size=%2x%3 channels=%4")
+                       .arg(mat.type())
+                       .arg(mat.cols)
+                       .arg(mat.rows)
+                       .arg(mat.channels());
+            return {};
+        }
+    } catch (const cv::Exception &exception) {
+        qWarning().noquote()
+            << QStringLiteral("[utils] matToQImage cv exception type=%1 size=%2x%3 step=%4 channels=%5 error=%6")
+                   .arg(mat.type())
+                   .arg(mat.cols)
+                   .arg(mat.rows)
+                   .arg(static_cast<qulonglong>(mat.step))
+                   .arg(mat.channels())
+                   .arg(QString::fromLocal8Bit(exception.what()));
+        return {};
+    } catch (const std::exception &exception) {
+        qWarning().noquote()
+            << QStringLiteral("[utils] matToQImage std exception type=%1 size=%2x%3 step=%4 channels=%5 error=%6")
+                   .arg(mat.type())
+                   .arg(mat.cols)
+                   .arg(mat.rows)
+                   .arg(static_cast<qulonglong>(mat.step))
+                   .arg(mat.channels())
+                   .arg(QString::fromLocal8Bit(exception.what()));
+        return {};
+    } catch (...) {
+        qWarning().noquote()
+            << QStringLiteral("[utils] matToQImage unknown exception type=%1 size=%2x%3 step=%4 channels=%5")
+                   .arg(mat.type())
+                   .arg(mat.cols)
+                   .arg(mat.rows)
+                   .arg(static_cast<qulonglong>(mat.step))
+                   .arg(mat.channels());
+        return {};
+    }
+}
+
+QImage buildPreviewImage(const cv::Mat &mat, const VisionParam &param, int maxPreviewLongEdge)
+{
     if (mat.empty()) {
         return {};
     }
 
-    switch (mat.type()) {
-    case CV_8UC1: {
-        QImage image(mat.data, mat.cols, mat.rows, static_cast<qsizetype>(mat.step), QImage::Format_Grayscale8);
-        return image.copy();
+    const int longEdge = std::max(mat.cols, mat.rows);
+    const double scale = (maxPreviewLongEdge > 0 && longEdge > maxPreviewLongEdge)
+                             ? static_cast<double>(maxPreviewLongEdge) / static_cast<double>(longEdge)
+                             : 1.0;
+
+    cv::Mat preview;
+    if (scale < 1.0) {
+        cv::resize(mat, preview, cv::Size(), scale, scale, cv::INTER_AREA);
+    } else {
+        preview = mat.clone();
     }
-    case CV_8UC3: {
-        cv::Mat rgb;
-        cv::cvtColor(mat, rgb, cv::COLOR_BGR2RGB);
-        QImage image(rgb.data, rgb.cols, rgb.rows, static_cast<qsizetype>(rgb.step), QImage::Format_RGB888);
-        return image.copy();
+
+    const QRect previewRoi = scaledRoi(param.roi, scale);
+    if (previewRoi.isValid() && !previewRoi.isEmpty()) {
+        cv::rectangle(
+            preview,
+            cv::Rect(previewRoi.x(), previewRoi.y(), previewRoi.width(), previewRoi.height()),
+            cv::Scalar(0, 215, 255),
+            2);
     }
-    case CV_8UC4: {
-        QImage image(mat.data, mat.cols, mat.rows, static_cast<qsizetype>(mat.step), QImage::Format_ARGB32);
-        return image.copy();
-    }
-    default:
+
+    return matToQImage(preview);
+}
+
+cv::Mat qImageToMat(const QImage &image)
+{
+    if (image.isNull()) {
         return {};
     }
+
+    const QImage converted = image.convertToFormat(QImage::Format_RGBA8888);
+    cv::Mat rgba(
+        converted.height(),
+        converted.width(),
+        CV_8UC4,
+        const_cast<uchar *>(converted.constBits()),
+        static_cast<size_t>(converted.bytesPerLine()));
+
+    cv::Mat bgr;
+    cv::cvtColor(rgba, bgr, cv::COLOR_RGBA2BGR);
+    return bgr.clone();
 }
 
 cv::Mat drawDetectionOverlay(const cv::Mat &image, const DetectResult &result)
@@ -65,7 +178,11 @@ cv::Mat drawDetectionOverlay(const cv::Mat &image, const DetectResult &result)
 
     cv::Mat annotated = image.clone();
     for (const auto &rect : result.defectRects) {
-        cv::rectangle(annotated, rect, cv::Scalar(0, 0, 255), 2);
+        cv::rectangle(
+            annotated,
+            cv::Rect(rect.x(), rect.y(), rect.width(), rect.height()),
+            cv::Scalar(0, 0, 255),
+            2);
     }
 
     const std::string resultText = boolToResultText(result.isOk).toStdString();

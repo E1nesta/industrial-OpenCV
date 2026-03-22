@@ -1,7 +1,8 @@
 cmake_minimum_required(VERSION 3.21)
 
 option(VISION_USE_VCPKG "Auto-configure vcpkg toolchain/package paths when available" ON)
-set(VISION_TOOLS_ROOT "G:/CODE/Tools" CACHE PATH "Local tools root")
+option(VISION_REQUIRE_VIDEO_RUNTIME "Require dynamic OpenCV videoio/FFmpeg runtime deployment support" ON)
+set(VISION_TOOLS_ROOT "" CACHE PATH "Optional local tools root for Ninja fallback")
 set(VISION_QT_ROOT "" CACHE PATH "Qt installation prefix, for example G:/CODE/6.10.2/mingw_64")
 set(VISION_VCPKG_ROOT "" CACHE PATH "vcpkg root directory")
 
@@ -18,24 +19,10 @@ if(NOT DEFINED CMAKE_PREFIX_PATH AND DEFINED ENV{CMAKE_PREFIX_PATH})
     set(CMAKE_PREFIX_PATH "$ENV{CMAKE_PREFIX_PATH}" CACHE PATH "Additional package prefixes")
 endif()
 
-if(NOT VISION_QT_ROOT)
-    set(_vision_local_qt_root "G:/CODE/6.10.2/mingw_64")
-    if(EXISTS "${_vision_local_qt_root}/lib/cmake/Qt6/Qt6Config.cmake")
-        set(VISION_QT_ROOT "${_vision_local_qt_root}" CACHE PATH "Qt installation prefix" FORCE)
-    endif()
-endif()
-
 if(NOT VISION_QT_ROOT AND DEFINED ENV{QTDIR})
     set(VISION_QT_ROOT "$ENV{QTDIR}" CACHE PATH "Qt installation prefix" FORCE)
 elseif(NOT VISION_QT_ROOT AND DEFINED ENV{QT_ROOT})
     set(VISION_QT_ROOT "$ENV{QT_ROOT}" CACHE PATH "Qt installation prefix" FORCE)
-endif()
-
-if(NOT VISION_VCPKG_ROOT)
-    set(_vision_local_vcpkg_root "G:/environment/vcpkg")
-    if(EXISTS "${_vision_local_vcpkg_root}/scripts/buildsystems/vcpkg.cmake")
-        set(VISION_VCPKG_ROOT "${_vision_local_vcpkg_root}" CACHE PATH "vcpkg root directory" FORCE)
-    endif()
 endif()
 
 if(NOT VISION_VCPKG_ROOT AND DEFINED ENV{VCPKG_ROOT})
@@ -85,13 +72,13 @@ if(NOT DEFINED VCPKG_TARGET_TRIPLET)
     set(_vision_default_triplet "x64-windows")
 
     if(CMAKE_GENERATOR MATCHES "MinGW Makefiles")
-        set(_vision_default_triplet "x64-mingw-static")
+        set(_vision_default_triplet "x64-mingw-dynamic")
     elseif(CMAKE_PREFIX_PATH MATCHES "mingw")
-        set(_vision_default_triplet "x64-mingw-static")
+        set(_vision_default_triplet "x64-mingw-dynamic")
     elseif(VISION_QT_ROOT MATCHES "mingw")
-        set(_vision_default_triplet "x64-mingw-static")
+        set(_vision_default_triplet "x64-mingw-dynamic")
     elseif(DEFINED ENV{QTDIR} AND "$ENV{QTDIR}" MATCHES "mingw")
-        set(_vision_default_triplet "x64-mingw-static")
+        set(_vision_default_triplet "x64-mingw-dynamic")
     endif()
 
     set(VCPKG_TARGET_TRIPLET "${_vision_default_triplet}" CACHE STRING "vcpkg target triplet")
@@ -108,10 +95,19 @@ set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
 message(STATUS "Generator: ${CMAKE_GENERATOR}")
+message(STATUS "Vision require video runtime: ${VISION_REQUIRE_VIDEO_RUNTIME}")
 message(STATUS "Tools root: ${VISION_TOOLS_ROOT}")
+message(STATUS "Qt root: ${VISION_QT_ROOT}")
+message(STATUS "vcpkg root: ${VISION_VCPKG_ROOT}")
 message(STATUS "VCPKG target triplet: ${VCPKG_TARGET_TRIPLET}")
 if(CMAKE_PREFIX_PATH)
     message(STATUS "CMAKE_PREFIX_PATH: ${CMAKE_PREFIX_PATH}")
+endif()
+if(NOT VISION_QT_ROOT)
+    message(WARNING
+        "QTDIR/QT_ROOT is not configured yet. In the current local-machine baseline, this is "
+        "the first environment gap to resolve before analyzing OpenCV or video runtime issues."
+    )
 endif()
 
 if(CMAKE_GENERATOR MATCHES "Visual Studio" AND VCPKG_TARGET_TRIPLET MATCHES "mingw")
@@ -130,6 +126,7 @@ endif()
 
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets Sql Network)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets Sql Network)
+find_package(Qt${QT_VERSION_MAJOR} OPTIONAL_COMPONENTS Test)
 
 if(QT_VERSION_MAJOR GREATER_EQUAL 6)
     qt_standard_project_setup()
@@ -152,13 +149,184 @@ if(VISION_USE_VCPKG AND NOT OpenCV_DIR AND VISION_VCPKG_ROOT)
     endif()
 endif()
 
-find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs)
+find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs videoio)
+
+message(STATUS "Resolved OpenCV_DIR: ${OpenCV_DIR}")
+message(STATUS "OpenCV shared build: ${OpenCV_SHARED}")
+
+if(VISION_REQUIRE_VIDEO_RUNTIME)
+    set(_vision_has_explicit_opencv_override OFF)
+    if((DEFINED OpenCV_ROOT AND NOT "${OpenCV_ROOT}" STREQUAL "")
+            OR (DEFINED OpenCV_DIR AND NOT "${OpenCV_DIR}" STREQUAL ""))
+        set(_vision_has_explicit_opencv_override ON)
+    endif()
+
+    if(NOT VISION_VCPKG_ROOT AND NOT _vision_has_explicit_opencv_override)
+        message(FATAL_ERROR
+            "VISION_REQUIRE_VIDEO_RUNTIME=ON requires either the standard vcpkg environment "
+            "(VCPKG_ROOT / x64-mingw-dynamic) or an explicit dynamic OpenCV override via "
+            "OpenCV_DIR/OpenCV_ROOT."
+        )
+    endif()
+
+    if(VISION_VCPKG_ROOT AND NOT VCPKG_TARGET_TRIPLET STREQUAL "x64-mingw-dynamic")
+        message(FATAL_ERROR
+            "This project requires VCPKG_TARGET_TRIPLET=x64-mingw-dynamic for video preview support. "
+            "Static or non-MinGW triplets are not supported in the standard environment."
+        )
+    endif()
+
+    if(DEFINED OpenCV_SHARED AND NOT OpenCV_SHARED)
+        message(FATAL_ERROR
+            "OpenCV was resolved as a static build, but this project requires a dynamic OpenCV "
+            "runtime with videoio/FFmpeg deployment support."
+        )
+    endif()
+endif()
+
+set(_vision_opencv_runtime_search_roots)
+set(_vision_opencv_runtime_search_mode "vcpkg-standard")
+
+if(VISION_VCPKG_ROOT AND VCPKG_TARGET_TRIPLET)
+    set(_vision_vcpkg_installed_root "${VISION_VCPKG_ROOT}/installed/${VCPKG_TARGET_TRIPLET}")
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+        list(APPEND _vision_opencv_runtime_search_roots
+            "${_vision_vcpkg_installed_root}/debug/bin"
+            "${_vision_vcpkg_installed_root}/bin"
+        )
+    elseif(CMAKE_BUILD_TYPE STREQUAL "Release")
+        list(APPEND _vision_opencv_runtime_search_roots
+            "${_vision_vcpkg_installed_root}/bin"
+            "${_vision_vcpkg_installed_root}/debug/bin"
+        )
+    else()
+        list(APPEND _vision_opencv_runtime_search_roots
+            "${_vision_vcpkg_installed_root}/bin"
+            "${_vision_vcpkg_installed_root}/debug/bin"
+        )
+    endif()
+endif()
+
+if(OpenCV_ROOT AND EXISTS "${OpenCV_ROOT}")
+    set(_vision_opencv_runtime_search_mode "explicit-root")
+    list(APPEND _vision_opencv_runtime_search_roots
+        "${OpenCV_ROOT}/bin"
+        "${OpenCV_ROOT}/debug/bin"
+    )
+elseif(OpenCV_DIR AND EXISTS "${OpenCV_DIR}")
+    get_filename_component(_vision_opencv_prefix "${OpenCV_DIR}/../.." ABSOLUTE)
+    if(EXISTS "${_vision_opencv_prefix}")
+        set(_vision_opencv_runtime_search_mode "explicit-dir")
+        list(APPEND _vision_opencv_runtime_search_roots
+            "${_vision_opencv_prefix}/bin"
+            "${_vision_opencv_prefix}/debug/bin"
+        )
+    endif()
+endif()
+
+list(REMOVE_DUPLICATES _vision_opencv_runtime_search_roots)
+message(STATUS "OpenCV runtime search mode: ${_vision_opencv_runtime_search_mode}")
+message(STATUS "OpenCV runtime search roots: ${_vision_opencv_runtime_search_roots}")
+
+if(VISION_REQUIRE_VIDEO_RUNTIME AND NOT _vision_opencv_runtime_search_roots)
+    message(FATAL_ERROR
+        "No OpenCV runtime search roots were resolved. "
+        "Use the standard vcpkg dynamic install or set OpenCV_DIR/OpenCV_ROOT explicitly."
+    )
+endif()
+
+set(_vision_opencv_runtime_dlls)
+set(_vision_opencv_videoio_plugins)
+set(_vision_opencv_videoio_runtime_deps)
+foreach(_vision_runtime_root IN LISTS _vision_opencv_runtime_search_roots)
+    if(NOT EXISTS "${_vision_runtime_root}")
+        continue()
+    endif()
+
+    file(GLOB _vision_runtime_opencv_dlls
+        "${_vision_runtime_root}/opencv_*.dll"
+        "${_vision_runtime_root}/libopencv_*.dll"
+    )
+    if(_vision_runtime_opencv_dlls)
+        list(APPEND _vision_opencv_runtime_dlls ${_vision_runtime_opencv_dlls})
+    endif()
+
+    file(GLOB _vision_runtime_plugins
+        "${_vision_runtime_root}/opencv_videoio_*.dll"
+        "${_vision_runtime_root}/libopencv_videoio*.dll"
+    )
+    if(_vision_runtime_plugins)
+        list(APPEND _vision_opencv_videoio_plugins ${_vision_runtime_plugins})
+    endif()
+
+    file(GLOB _vision_runtime_ffmpeg_deps
+        "${_vision_runtime_root}/avcodec-*.dll"
+        "${_vision_runtime_root}/avformat-*.dll"
+        "${_vision_runtime_root}/avutil-*.dll"
+        "${_vision_runtime_root}/swresample-*.dll"
+        "${_vision_runtime_root}/swscale-*.dll"
+        "${_vision_runtime_root}/postproc-*.dll"
+    )
+    if(_vision_runtime_ffmpeg_deps)
+        list(APPEND _vision_opencv_videoio_runtime_deps ${_vision_runtime_ffmpeg_deps})
+    endif()
+endforeach()
+
+list(REMOVE_DUPLICATES _vision_opencv_runtime_dlls)
+list(REMOVE_DUPLICATES _vision_opencv_videoio_plugins)
+list(REMOVE_DUPLICATES _vision_opencv_videoio_runtime_deps)
+
+if(_vision_opencv_runtime_dlls)
+    message(STATUS "OpenCV runtime DLLs detected: ${_vision_opencv_runtime_dlls}")
+elseif(VISION_REQUIRE_VIDEO_RUNTIME)
+    message(FATAL_ERROR
+        "No OpenCV runtime DLLs were found in the resolved runtime search roots. "
+        "The standard environment requires deployable dynamic OpenCV runtimes."
+    )
+elseif(OpenCV_SHARED)
+    message(WARNING
+        "OpenCV is configured as shared, but no runtime DLLs were found under the resolved runtime search roots. "
+        "Applications may fail to start until the OpenCV runtime is deployed manually."
+    )
+endif()
+
+if(_vision_opencv_videoio_plugins)
+    message(STATUS "OpenCV videoio plugins detected: ${_vision_opencv_videoio_plugins}")
+elseif(VISION_REQUIRE_VIDEO_RUNTIME)
+    message(FATAL_ERROR
+        "No OpenCV videoio runtime DLLs were found in the resolved runtime search roots. "
+        "VideoCapture would likely fall back to CAP_IMAGES for video files."
+    )
+else()
+    message(WARNING
+        "No OpenCV videoio runtime DLLs were found under the resolved runtime search roots. "
+        "VideoCapture may fall back to CAP_IMAGES for video files. "
+    )
+endif()
+
+if(_vision_opencv_videoio_runtime_deps)
+    message(STATUS "OpenCV videoio runtime dependencies detected: ${_vision_opencv_videoio_runtime_deps}")
+elseif(VISION_REQUIRE_VIDEO_RUNTIME)
+    message(FATAL_ERROR
+        "No FFmpeg runtime dependency DLLs were found in the resolved runtime search roots. "
+        "The standard environment requires deployable FFmpeg dependencies for video playback."
+    )
+else()
+    message(WARNING
+        "No FFmpeg runtime dependency DLLs were found under the resolved runtime search roots. "
+        "Video playback may fail at runtime."
+    )
+endif()
 
 set(PROJECT_SOURCES
     main.cpp
     app/appcontroller.h
     app/appcontroller.cpp
     camera/icamera.h
+    camera/captureworker.h
+    camera/captureworker.cpp
+    camera/videocapturesource.h
+    camera/videocapturesource.cpp
     camera/virtualcamera.h
     camera/virtualcamera.cpp
     camera/cameramanager.h
@@ -175,9 +343,14 @@ set(PROJECT_SOURCES
     logger/logmanager.cpp
     logger/logworker.h
     logger/logworker.cpp
+    models/capturedframe.h
+    models/detectionoutput.h
+    models/detectionrequest.h
     models/deviceconfig.h
     models/detectresult.h
+    models/inputsource.h
     models/inspectionrecord.h
+    models/persistenceresult.h
     models/visionparam.h
     storage/configmanager.h
     storage/configmanager.cpp
@@ -222,6 +395,107 @@ target_link_libraries(VisionInspectionSystem
         ${OpenCV_LIBS}
 )
 
+if(_vision_opencv_runtime_dlls OR _vision_opencv_videoio_plugins OR _vision_opencv_videoio_runtime_deps)
+    foreach(_vision_runtime_artifact IN LISTS
+            _vision_opencv_runtime_dlls
+            _vision_opencv_videoio_plugins
+            _vision_opencv_videoio_runtime_deps)
+        if(EXISTS "${_vision_runtime_artifact}")
+            add_custom_command(
+                TARGET VisionInspectionSystem POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${_vision_runtime_artifact}"
+                    "$<TARGET_FILE_DIR:VisionInspectionSystem>"
+                VERBATIM
+            )
+        endif()
+    endforeach()
+endif()
+
 if(QT_VERSION_MAJOR EQUAL 6)
     qt_finalize_executable(VisionInspectionSystem)
+endif()
+
+include(CTest)
+
+if(BUILD_TESTING)
+    if(NOT TARGET Qt${QT_VERSION_MAJOR}::Test)
+        message(WARNING "Qt Test component not found; skipping test target setup.")
+    else()
+        set(_vision_test_path_entries)
+        if(VISION_QT_ROOT AND EXISTS "${VISION_QT_ROOT}/bin")
+            list(APPEND _vision_test_path_entries "${VISION_QT_ROOT}/bin")
+        endif()
+        foreach(_vision_runtime_root IN LISTS _vision_opencv_runtime_search_roots)
+            if(EXISTS "${_vision_runtime_root}")
+                list(APPEND _vision_test_path_entries "${_vision_runtime_root}")
+            endif()
+        endforeach()
+        list(APPEND _vision_test_path_entries "${CMAKE_CURRENT_BINARY_DIR}")
+        list(REMOVE_DUPLICATES _vision_test_path_entries)
+        string(JOIN ";" _vision_test_path "${_vision_test_path_entries}")
+
+        add_executable(VisionImageProcessorTests
+            tests/imageprocessor_tests.cpp
+            common/constants.h
+            logger/logevent.h
+            logger/logmanager.h
+            logger/logmanager.cpp
+            logger/logworker.h
+            logger/logworker.cpp
+            vision/imageprocessor.h
+            vision/imageprocessor.cpp
+            models/capturedframe.h
+            models/detectresult.h
+            models/inputsource.h
+            models/visionparam.h
+        )
+
+        target_include_directories(VisionImageProcessorTests
+            PRIVATE
+                ${CMAKE_CURRENT_SOURCE_DIR}
+                ${OpenCV_INCLUDE_DIRS}
+        )
+
+        target_link_libraries(VisionImageProcessorTests
+            PRIVATE
+                Qt${QT_VERSION_MAJOR}::Core
+                Qt${QT_VERSION_MAJOR}::Gui
+                Qt${QT_VERSION_MAJOR}::Test
+                ${OpenCV_LIBS}
+        )
+
+        add_executable(VisionUtilsTests
+            tests/utils_tests.cpp
+            common/utils.h
+            common/utils.cpp
+            models/capturedframe.h
+            models/detectresult.h
+            models/inputsource.h
+            models/visionparam.h
+        )
+
+        target_include_directories(VisionUtilsTests
+            PRIVATE
+                ${CMAKE_CURRENT_SOURCE_DIR}
+                ${OpenCV_INCLUDE_DIRS}
+        )
+
+        target_link_libraries(VisionUtilsTests
+            PRIVATE
+                Qt${QT_VERSION_MAJOR}::Core
+                Qt${QT_VERSION_MAJOR}::Gui
+                Qt${QT_VERSION_MAJOR}::Test
+                ${OpenCV_LIBS}
+        )
+
+        add_test(NAME VisionImageProcessorTests COMMAND VisionImageProcessorTests)
+        add_test(NAME VisionUtilsTests COMMAND VisionUtilsTests)
+        set_tests_properties(
+            VisionImageProcessorTests
+            VisionUtilsTests
+            PROPERTIES
+                ENVIRONMENT "PATH=${_vision_test_path};$ENV{PATH}"
+        )
+    endif()
 endif()

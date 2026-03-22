@@ -66,12 +66,18 @@ bool DatabaseManager::ensureSchema(QSqlDatabase &database, QString *errorMessage
         "CREATE TABLE IF NOT EXISTS inspection_records ("
         "id INTEGER PRIMARY KEY AUTOINCREMENT,"
         "inspection_id TEXT,"
+        "capture_id TEXT,"
         "timestamp TEXT NOT NULL,"
         "batch_no TEXT,"
+        "source_type TEXT,"
+        "source_path TEXT,"
+        "source_name TEXT,"
+        "frame_index INTEGER,"
         "is_ok INTEGER NOT NULL,"
         "defect_count INTEGER NOT NULL,"
         "process_time_ms REAL NOT NULL,"
-        "image_path TEXT NOT NULL"
+        "image_path TEXT,"
+        "result_image_path TEXT"
         ")"));
 
     if (!tableOk && errorMessage != nullptr) {
@@ -79,6 +85,46 @@ bool DatabaseManager::ensureSchema(QSqlDatabase &database, QString *errorMessage
     }
 
     if (!tableOk) {
+        return false;
+    }
+
+    if (!ensureColumnExists(
+            database,
+            QStringLiteral("capture_id"),
+            QStringLiteral("TEXT"),
+            errorMessage)) {
+        return false;
+    }
+
+    if (!ensureColumnExists(
+            database,
+            QStringLiteral("source_type"),
+            QStringLiteral("TEXT"),
+            errorMessage)) {
+        return false;
+    }
+
+    if (!ensureColumnExists(
+            database,
+            QStringLiteral("source_path"),
+            QStringLiteral("TEXT"),
+            errorMessage)) {
+        return false;
+    }
+
+    if (!ensureColumnExists(
+            database,
+            QStringLiteral("source_name"),
+            QStringLiteral("TEXT"),
+            errorMessage)) {
+        return false;
+    }
+
+    if (!ensureColumnExists(
+            database,
+            QStringLiteral("frame_index"),
+            QStringLiteral("INTEGER"),
+            errorMessage)) {
         return false;
     }
 

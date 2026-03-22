@@ -30,6 +30,32 @@ QString escapeCsvField(const QString &value)
     escaped.replace('"', QStringLiteral("\"\""));
     return QStringLiteral("\"%1\"").arg(escaped);
 }
+
+QString inputSourceTypeLabel(InputSourceType type)
+{
+    switch (type) {
+    case InputSourceType::VideoFile:
+        return QStringLiteral("视频文件");
+    case InputSourceType::Camera:
+        return QStringLiteral("摄像头");
+    case InputSourceType::FileImage:
+    default:
+        return QStringLiteral("本地图片");
+    }
+}
+
+QString sourcePlaceholderText(InputSourceType type)
+{
+    switch (type) {
+    case InputSourceType::VideoFile:
+        return QStringLiteral("等待视频预览帧");
+    case InputSourceType::Camera:
+        return QStringLiteral("等待摄像头预览帧");
+    case InputSourceType::FileImage:
+    default:
+        return QStringLiteral("等待导入图片");
+    }
+}
 } // namespace
 
 MainWindow::MainWindow(AppController *controller, QWidget *parent)
@@ -52,13 +78,34 @@ MainWindow::~MainWindow()
 
 void MainWindow::onImportImageClicked()
 {
+    const InputSourceConfig config = collectInputSourceConfig();
+    const bool isVideoMode = config.type == InputSourceType::VideoFile;
     const QString filePath = QFileDialog::getOpenFileName(
         this,
-        tr("选择检测图片"),
-        QString(),
-        tr("图片文件 (*.png *.jpg *.jpeg *.bmp)"));
+        isVideoMode ? tr("选择视频文件") : tr("选择检测图片"),
+        ui->inputSourcePathLineEdit->text().trimmed(),
+        isVideoMode ? tr("视频文件 (*.mp4 *.avi *.mov *.mkv)")
+                    : tr("图片文件 (*.png *.jpg *.jpeg *.bmp)"));
 
     if (filePath.isEmpty()) {
+        return;
+    }
+
+    ui->inputSourcePathLineEdit->setText(filePath);
+    m_controller->setInputSourceConfig(collectInputSourceConfig());
+
+    if (isVideoMode) {
+        m_currentImagePath.clear();
+        m_previewFrameRendered = false;
+        m_sourceImageView->clearImage();
+        m_resultImageView->clearImage();
+        ui->currentImageValueLabel->setText(filePath);
+        ui->resultStateValueLabel->setText(QStringLiteral("待预览"));
+        ui->defectCountValueLabel->setText(QStringLiteral("--"));
+        ui->processTimeValueLabel->setText(QStringLiteral("--"));
+        m_controller->logManager().info(QStringLiteral("界面"), QStringLiteral("已选择视频文件：%1").arg(filePath));
+        statusBar()->showMessage(tr("视频文件已选择"), 3000);
+        syncCaptureState();
         return;
     }
 
@@ -83,13 +130,42 @@ void MainWindow::onImportImageClicked()
 
 void MainWindow::onStartDetectionClicked()
 {
-    if (m_currentImagePath.isEmpty()) {
-        QMessageBox::information(this, tr("尚未选择图片"), tr("请先导入一张待检测图片。"));
+    m_controller->setVisionParam(collectVisionParam());
+
+    if (collectInputSourceConfig().type == InputSourceType::FileImage) {
+        if (m_currentImagePath.isEmpty()) {
+            const QString candidatePath = ui->inputSourcePathLineEdit->text().trimmed();
+            if (candidatePath.isEmpty()) {
+                QMessageBox::information(this, tr("尚未选择图片"), tr("请先导入一张待检测图片。"));
+                return;
+            }
+
+            const QImage image(candidatePath);
+            if (image.isNull()) {
+                QMessageBox::warning(this, tr("图片加载失败"), tr("当前路径无法作为图片加载，请重新选择图片。"));
+                return;
+            }
+
+            m_currentImagePath = candidatePath;
+            m_sourceImageView->setImage(image);
+            ui->currentImageValueLabel->setText(candidatePath);
+        }
+
+        if (m_currentImagePath.isEmpty()) {
+            QMessageBox::information(this, tr("尚未选择图片"), tr("请先导入一张待检测图片。"));
+            return;
+        }
+
+        if (!m_controller->startDetection(m_currentImagePath)) {
+            if (!m_controller->isDetectionRunning()) {
+                QMessageBox::warning(this, tr("检测未启动"), m_controller->statusMessage());
+            }
+            return;
+        }
         return;
     }
 
-    m_controller->setVisionParam(collectVisionParam());
-    if (!m_controller->startDetection(m_currentImagePath)) {
+    if (!m_controller->detectCurrentFrame()) {
         if (!m_controller->isDetectionRunning()) {
             QMessageBox::warning(this, tr("检测未启动"), m_controller->statusMessage());
         }
@@ -176,6 +252,7 @@ void MainWindow::onSaveParamClicked()
 {
     m_controller->setVisionParam(collectVisionParam());
     m_controller->setDeviceConfig(collectDeviceConfig());
+    m_controller->setInputSourceConfig(collectInputSourceConfig());
     m_controller->saveCurrentParam();
 }
 
@@ -198,6 +275,65 @@ void MainWindow::onTcpConnectClicked()
     }
 }
 
+void MainWindow::onInputSourceTypeChanged()
+{
+    const InputSourceConfig previousConfig = m_controller->inputSourceConfig();
+    const InputSourceConfig config = collectInputSourceConfig();
+    if (previousConfig.type != config.type && m_controller->captureStatus().opened) {
+        m_controller->closeInputSource();
+    }
+
+    if (previousConfig.type != config.type) {
+        m_currentImagePath.clear();
+        m_previewFrameRendered = false;
+        m_sourceImageView->clearImage();
+        if (config.type == InputSourceType::FileImage) {
+            ui->inputSourcePathLineEdit->clear();
+            ui->currentImageValueLabel->setText(QStringLiteral("未选择"));
+        } else {
+            if (previousConfig.type == InputSourceType::FileImage) {
+                ui->inputSourcePathLineEdit->clear();
+            }
+            ui->currentImageValueLabel->setText(sourcePlaceholderText(config.type));
+        }
+    }
+
+    m_controller->setInputSourceConfig(config);
+    updateInputSourceUi();
+    syncCaptureState();
+}
+
+void MainWindow::onBrowseInputSourceClicked()
+{
+    onImportImageClicked();
+}
+
+void MainWindow::onOpenInputSourceClicked()
+{
+    m_controller->setInputSourceConfig(collectInputSourceConfig());
+    if (!m_controller->openInputSource()) {
+        QMessageBox::warning(this, tr("输入源打开失败"), m_controller->statusMessage());
+    }
+}
+
+void MainWindow::onCloseInputSourceClicked()
+{
+    m_controller->closeInputSource();
+}
+
+void MainWindow::onStartPreviewClicked()
+{
+    m_controller->setInputSourceConfig(collectInputSourceConfig());
+    if (!m_controller->startPreview()) {
+        QMessageBox::warning(this, tr("预览未启动"), m_controller->statusMessage());
+    }
+}
+
+void MainWindow::onStopPreviewClicked()
+{
+    m_controller->stopPreview();
+}
+
 void MainWindow::onDetectionStarted()
 {
     m_resultImageView->clearImage();
@@ -209,7 +345,19 @@ void MainWindow::onDetectionStarted()
 
 void MainWindow::onDetectionFinished(const DetectResult &result, const QImage &resultImage)
 {
+    m_controller->logManager().info(
+        QStringLiteral("界面"),
+        QStringLiteral("界面收到检测完成：inspectionId=%1 isNull=%2 size=%3x%4")
+            .arg(result.inspectionId)
+            .arg(resultImage.isNull() ? QStringLiteral("true") : QStringLiteral("false"))
+            .arg(resultImage.width())
+            .arg(resultImage.height()),
+        false);
     m_resultImageView->setImage(resultImage);
+    m_controller->logManager().info(
+        QStringLiteral("界面"),
+        QStringLiteral("结果图已显示到界面：inspectionId=%1").arg(result.inspectionId),
+        false);
     ui->resultStateValueLabel->setText(utils::boolToResultText(result.isOk));
     ui->defectCountValueLabel->setText(QString::number(result.defectCount));
     ui->processTimeValueLabel->setText(QStringLiteral("%1 ms").arg(result.processTimeMs, 0, 'f', 2));
@@ -247,7 +395,6 @@ void MainWindow::onDetectionRunningChanged(bool isRunning)
     ui->startDetectionButton->setEnabled(!isRunning);
     ui->stopDetectionButton->setEnabled(isRunning && !cancelRequested);
     ui->stopDetectionButton->setText(cancelRequested ? QStringLiteral("取消中...") : QStringLiteral("停止检测"));
-    ui->importImageButton->setEnabled(!isRunning);
     ui->loadParamButton->setEnabled(!isRunning);
     ui->saveParamButton->setEnabled(!isRunning);
     ui->resetParamButton->setEnabled(!isRunning);
@@ -265,6 +412,7 @@ void MainWindow::onDetectionRunningChanged(bool isRunning)
     ui->browseImageSavePathButton->setEnabled(!isRunning);
     ui->tcpIpLineEdit->setEnabled(!isRunning);
     ui->tcpPortSpinBox->setEnabled(!isRunning);
+    syncCaptureState();
 }
 
 void MainWindow::onControllerStatusChanged(const QString &message)
@@ -273,10 +421,50 @@ void MainWindow::onControllerStatusChanged(const QString &message)
     statusBar()->showMessage(message, 5000);
 }
 
+void MainWindow::onCaptureStatusChanged(const CaptureStatusSnapshot &status)
+{
+    Q_UNUSED(status);
+    syncCaptureState();
+}
+
+void MainWindow::onPreviewFrameUpdated(const QImage &previewImage)
+{
+    const CaptureStatusSnapshot &status = m_controller->captureStatus();
+    if (previewImage.isNull()) {
+        m_previewFrameRendered = false;
+        if (status.source.type != InputSourceType::FileImage) {
+            m_sourceImageView->clearImage();
+        }
+        syncCaptureState();
+        return;
+    }
+
+    m_sourceImageView->setImage(previewImage);
+    if (!m_previewFrameRendered) {
+        m_previewFrameRendered = true;
+        m_controller->logManager().info(
+            QStringLiteral("采集"),
+            QStringLiteral("首帧预览已显示：source=%1 frameIndex=%2 size=%3x%4")
+                .arg(status.source.sourceName.isEmpty() ? inputSourceTypeLabel(status.source.type)
+                                                        : status.source.sourceName)
+                .arg(status.lastFrameIndex)
+                .arg(previewImage.width())
+                .arg(previewImage.height()),
+            false);
+    }
+    const QString sourceName = status.source.sourceName.isEmpty() ? inputSourceTypeLabel(status.source.type)
+                                                                  : status.source.sourceName;
+    ui->currentImageValueLabel->setText(
+        status.lastFrameIndex >= 0 ? QStringLiteral("%1 / frame=%2").arg(sourceName).arg(status.lastFrameIndex)
+                                   : sourceName);
+    syncCaptureState();
+}
+
 void MainWindow::syncFromController()
 {
     const VisionParam &param = m_controller->visionParam();
     const DeviceConfig &deviceConfig = m_controller->deviceConfig();
+    const InputSourceConfig &inputConfig = m_controller->inputSourceConfig();
 
     ui->thresholdSpinBox->setValue(param.threshold);
     ui->minAreaSpinBox->setValue(param.minArea);
@@ -286,6 +474,13 @@ void MainWindow::syncFromController()
     ui->imageSavePathLineEdit->setText(param.imageSavePath);
     ui->tcpIpLineEdit->setText(deviceConfig.ip);
     ui->tcpPortSpinBox->setValue(deviceConfig.port);
+    {
+        const QSignalBlocker typeBlocker(ui->inputSourceTypeComboBox);
+        ui->inputSourceTypeComboBox->setCurrentIndex(static_cast<int>(inputConfig.type));
+    }
+    ui->inputSourcePathLineEdit->setText(inputConfig.sourcePath);
+    ui->cameraDeviceSpinBox->setValue(inputConfig.deviceIndex);
+    ui->previewIntervalSpinBox->setValue(inputConfig.previewIntervalMs);
     {
         const QSignalBlocker blocker(ui->logCaptureLevelComboBox);
         ui->logCaptureLevelComboBox->setCurrentText(m_controller->logManager().minimumLevelName());
@@ -298,7 +493,9 @@ void MainWindow::syncFromController()
         ui->statusValueLabel->setText(m_controller->statusMessage());
     }
 
+    updateInputSourceUi();
     onDetectionRunningChanged(m_controller->isDetectionRunning());
+    syncCaptureState();
     syncTcpState();
 }
 
@@ -325,6 +522,28 @@ DeviceConfig MainWindow::collectDeviceConfig() const
     DeviceConfig config = m_controller->deviceConfig();
     config.ip = ui->tcpIpLineEdit->text().trimmed();
     config.port = ui->tcpPortSpinBox->value();
+    return config;
+}
+
+InputSourceConfig MainWindow::collectInputSourceConfig() const
+{
+    InputSourceConfig config = m_controller->inputSourceConfig();
+    config.type = static_cast<InputSourceType>(ui->inputSourceTypeComboBox->currentIndex());
+    config.sourcePath = ui->inputSourcePathLineEdit->text().trimmed();
+    config.deviceIndex = ui->cameraDeviceSpinBox->value();
+    config.previewIntervalMs = ui->previewIntervalSpinBox->value();
+
+    switch (config.type) {
+    case InputSourceType::Camera:
+        config.sourceName = QStringLiteral("camera-%1").arg(config.deviceIndex);
+        break;
+    case InputSourceType::VideoFile:
+    case InputSourceType::FileImage:
+    default:
+        config.sourceName = QFileInfo(config.sourcePath).fileName();
+        break;
+    }
+
     return config;
 }
 
@@ -505,9 +724,55 @@ void MainWindow::updateRoiSummary()
     ui->roiValueLabel->setText(utils::formatRoi(collectRoi()));
 }
 
+void MainWindow::updateInputSourceUi()
+{
+    const InputSourceConfig config = m_controller->inputSourceConfig();
+    const bool isFileMode = config.type == InputSourceType::FileImage;
+    const bool isCameraMode = config.type == InputSourceType::Camera;
+    const bool isVideoMode = config.type == InputSourceType::VideoFile;
+
+    ui->inputSourcePathLabel->setVisible(!isCameraMode);
+    ui->inputSourcePathLineEdit->setVisible(!isCameraMode);
+    ui->browseInputSourceButton->setVisible(isVideoMode);
+    ui->cameraDeviceLabel->setVisible(isCameraMode);
+    ui->cameraDeviceSpinBox->setVisible(isCameraMode);
+    ui->previewIntervalLabel->setVisible(!isFileMode);
+    ui->previewIntervalSpinBox->setVisible(!isFileMode);
+    ui->openInputSourceButton->setVisible(!isFileMode);
+    ui->closeInputSourceButton->setVisible(!isFileMode);
+    ui->startPreviewButton->setVisible(!isFileMode);
+    ui->stopPreviewButton->setVisible(!isFileMode);
+    ui->importImageButton->setVisible(isFileMode);
+    ui->sourceTitleLabel->setText(isFileMode ? QStringLiteral("原始图像") : QStringLiteral("当前帧"));
+    m_sourceImageView->setPlaceholderText(sourcePlaceholderText(config.type));
+    if (isFileMode && m_currentImagePath.isEmpty()) {
+        ui->currentImageValueLabel->setText(QStringLiteral("未选择"));
+    }
+
+    ui->importImageButton->setText(
+        config.type == InputSourceType::VideoFile ? QStringLiteral("选择视频文件")
+                                                  : QStringLiteral("选择图片文件"));
+    ui->startDetectionButton->setText(
+        isFileMode ? QStringLiteral("开始检测") : QStringLiteral("检测当前帧"));
+}
+
 void MainWindow::bindSignals()
 {
     connect(ui->importImageButton, &QPushButton::clicked, this, &MainWindow::onImportImageClicked);
+    connect(
+        ui->browseInputSourceButton,
+        &QPushButton::clicked,
+        this,
+        &MainWindow::onBrowseInputSourceClicked);
+    connect(
+        ui->inputSourceTypeComboBox,
+        &QComboBox::currentIndexChanged,
+        this,
+        [this](int) { onInputSourceTypeChanged(); });
+    connect(ui->openInputSourceButton, &QPushButton::clicked, this, &MainWindow::onOpenInputSourceClicked);
+    connect(ui->closeInputSourceButton, &QPushButton::clicked, this, &MainWindow::onCloseInputSourceClicked);
+    connect(ui->startPreviewButton, &QPushButton::clicked, this, &MainWindow::onStartPreviewClicked);
+    connect(ui->stopPreviewButton, &QPushButton::clicked, this, &MainWindow::onStopPreviewClicked);
     connect(ui->startDetectionButton, &QPushButton::clicked, this, &MainWindow::onStartDetectionClicked);
     connect(ui->stopDetectionButton, &QPushButton::clicked, this, &MainWindow::onStopDetectionClicked);
     connect(ui->loadParamButton, &QPushButton::clicked, this, &MainWindow::onLoadParamClicked);
@@ -591,6 +856,9 @@ void MainWindow::bindSignals()
     connect(m_controller, &AppController::statusChanged, this, &MainWindow::onControllerStatusChanged);
     connect(m_controller, &AppController::visionParamChanged, this, &MainWindow::syncFromController);
     connect(m_controller, &AppController::deviceConfigChanged, this, &MainWindow::syncFromController);
+    connect(m_controller, &AppController::inputSourceConfigChanged, this, &MainWindow::syncFromController);
+    connect(m_controller, &AppController::captureStatusChanged, this, &MainWindow::onCaptureStatusChanged);
+    connect(m_controller, &AppController::previewFrameUpdated, this, &MainWindow::onPreviewFrameUpdated);
     connect(m_controller, &AppController::recordsChanged, this, &MainWindow::syncRecentRecords);
     connect(m_controller, &AppController::tcpStateChanged, this, &MainWindow::syncTcpState);
 }
@@ -600,7 +868,7 @@ void MainWindow::setupImageViews()
     auto *sourceLayout = new QVBoxLayout(ui->sourceImageHost);
     sourceLayout->setContentsMargins(0, 0, 0, 0);
     m_sourceImageView = new ImageViewWidget(ui->sourceImageHost);
-    m_sourceImageView->setPlaceholderText(QStringLiteral("等待导入原始图像"));
+    m_sourceImageView->setPlaceholderText(QStringLiteral("等待输入源图像"));
     sourceLayout->addWidget(m_sourceImageView);
 
     auto *resultLayout = new QVBoxLayout(ui->resultImageHost);
@@ -613,6 +881,15 @@ void MainWindow::setupImageViews()
 void MainWindow::setupUiState()
 {
     ui->logPlainTextEdit->document()->setMaximumBlockCount(200);
+    ui->inputSourceTypeComboBox->addItems(
+        QStringList{QStringLiteral("文件"),
+                    QStringLiteral("视频模拟"),
+                    QStringLiteral("摄像头")});
+    ui->cameraDeviceSpinBox->setMinimum(0);
+    ui->cameraDeviceSpinBox->setMaximum(16);
+    ui->previewIntervalSpinBox->setMinimum(10);
+    ui->previewIntervalSpinBox->setMaximum(1000);
+    ui->previewIntervalSpinBox->setSuffix(QStringLiteral(" ms"));
     ui->logCaptureLevelComboBox->addItems(
         QStringList{QStringLiteral("DEBUG"),
                     QStringLiteral("INFO"),
@@ -658,8 +935,45 @@ void MainWindow::setupUiState()
     ui->bottomSplitter->setStretchFactor(1, 2);
     statusBar()->showMessage(tr("系统已启动"), 3000);
     updateRoiSummary();
+    updateInputSourceUi();
     onDetectionRunningChanged(false);
+    syncCaptureState();
     syncTcpState();
+}
+
+void MainWindow::syncCaptureState()
+{
+    const InputSourceConfig config = m_controller->inputSourceConfig();
+    const CaptureStatusSnapshot &status = m_controller->captureStatus();
+    const bool isFileMode = config.type == InputSourceType::FileImage;
+    const bool isRunning = m_controller->isDetectionRunning();
+    const bool cancelRequested = m_controller->isDetectionCancelRequested();
+    const bool previewing = status.state == CaptureState::Previewing;
+
+    ui->importImageButton->setEnabled(!isRunning && !cancelRequested && !m_controller->captureStatus().opened);
+    ui->browseInputSourceButton->setEnabled(!isRunning && !cancelRequested && !status.opened);
+    ui->inputSourceTypeComboBox->setEnabled(!isRunning && !cancelRequested && !status.opened);
+    ui->inputSourcePathLineEdit->setEnabled(!isRunning && !cancelRequested && !status.opened);
+    ui->cameraDeviceSpinBox->setEnabled(!isRunning && !cancelRequested && !status.opened);
+    ui->previewIntervalSpinBox->setEnabled(!isRunning && !cancelRequested && !status.opened);
+    ui->openInputSourceButton->setEnabled(!isRunning && !status.opened && status.state != CaptureState::Opening);
+    ui->closeInputSourceButton->setEnabled(!isRunning && (status.opened || status.state == CaptureState::Error));
+    ui->startPreviewButton->setEnabled(!isRunning && status.opened && !previewing);
+    ui->stopPreviewButton->setEnabled(!isRunning && previewing);
+
+    if (isFileMode) {
+        ui->startDetectionButton->setEnabled(
+            !isRunning
+            && (!m_currentImagePath.isEmpty() || !ui->inputSourcePathLineEdit->text().trimmed().isEmpty()));
+    } else {
+        ui->startDetectionButton->setEnabled(
+            !isRunning && status.state == CaptureState::Previewing && m_controller->hasLatestFrame());
+        if (!m_controller->hasLatestFrame()) {
+            ui->currentImageValueLabel->setText(status.statusText.isEmpty()
+                                                    ? QStringLiteral("等待输入源帧")
+                                                    : status.statusText);
+        }
+    }
 }
 
 void MainWindow::syncTcpState()

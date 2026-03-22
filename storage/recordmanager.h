@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QList>
+#include <QMutex>
 #include <QString>
 
 #include "models/inspectionrecord.h"
@@ -22,4 +23,6 @@ public:
 
 private:
     DatabaseManager m_databaseManager;
+    mutable QMutex m_initializeMutex;
+    mutable bool m_isInitialized = false;
 };

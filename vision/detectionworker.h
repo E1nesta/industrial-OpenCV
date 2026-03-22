@@ -2,11 +2,9 @@
 
 #include <atomic>
 
-#include <QImage>
 #include <QObject>
 
-#include "models/detectresult.h"
-#include "models/visionparam.h"
+#include "models/detectionoutput.h"
 
 class LogManager;
 
@@ -21,12 +19,12 @@ public:
     void requestCancel();
 
 public slots:
-    void process(const QString &inspectionId, const QString &imagePath, const VisionParam &param);
+    void process(const DetectionRequest &request);
 
 signals:
-    void completed(const DetectResult &result, const QImage &resultImage);
-    void failed(const QString &errorMessage);
-    void canceled();
+    void completed(const DetectionOutput &output);
+    void failed(const QString &inspectionId, const QString &errorMessage);
+    void canceled(const QString &inspectionId);
 
 private:
     LogManager *m_logManager = nullptr;

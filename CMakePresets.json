@@ -7,27 +7,44 @@
   },
   "configurePresets": [
     {
-      "name": "local-mingw-debug",
-      "displayName": "Local MinGW Debug",
-      "description": "Use local tools under G:/CODE/Tools with Qt 6.10.2 MinGW and vcpkg OpenCV.",
+      "name": "mingw-debug",
+      "displayName": "MinGW Debug",
+      "description": "Current local-machine baseline: use Ninja with the active build/mingw-debug output directory.",
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build/local-mingw-debug-opencv-safe",
+      "binaryDir": "${sourceDir}/build/mingw-debug",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_MAKE_PROGRAM": "G:/CODE/Tools/Ninja/ninja.exe",
         "CMAKE_CXX_COMPILER": "G:/CODE/Tools/mingw1310_64/bin/g++.exe",
-        "VISION_TOOLS_ROOT": "G:/CODE/Tools",
-        "VISION_QT_ROOT": "G:/CODE/6.10.2/mingw_64",
-        "VISION_VCPKG_ROOT": "G:/environment/vcpkg",
-        "VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/vcpkg-triplets",
-        "VCPKG_TARGET_TRIPLET": "x64-mingw-static-opencv-safe"
+        "VISION_USE_VCPKG": "ON",
+        "VISION_REQUIRE_VIDEO_RUNTIME": "ON",
+        "VCPKG_TARGET_TRIPLET": "x64-mingw-dynamic"
+      }
+    },
+    {
+      "name": "mingw-release",
+      "displayName": "MinGW Release",
+      "description": "Current local-machine baseline: use Ninja with the active build/mingw-release output directory.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/mingw-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_MAKE_PROGRAM": "G:/CODE/Tools/Ninja/ninja.exe",
+        "CMAKE_CXX_COMPILER": "G:/CODE/Tools/mingw1310_64/bin/g++.exe",
+        "VISION_USE_VCPKG": "ON",
+        "VISION_REQUIRE_VIDEO_RUNTIME": "ON",
+        "VCPKG_TARGET_TRIPLET": "x64-mingw-dynamic"
       }
     }
   ],
   "buildPresets": [
     {
-      "name": "local-mingw-debug",
-      "configurePreset": "local-mingw-debug"
+      "name": "mingw-debug",
+      "configurePreset": "mingw-debug"
+    },
+    {
+      "name": "mingw-release",
+      "configurePreset": "mingw-release"
     }
   ]
 }

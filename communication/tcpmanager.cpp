@@ -106,29 +106,31 @@ bool TcpManager::sendResult(bool isOk, int timeoutMs)
     }
 
     const QString firstError = m_lastError;
+    QString latestRetryError = firstError;
 
     for (int attempt = 0; attempt < retryCount; ++attempt) {
         disconnectFromDevice(false);
 
         if (!connectToDevice(connectTimeoutMs)) {
-            if (!firstError.isEmpty()) {
-                const QTcpSocket *socket = socketIfAvailable();
-                m_lastError = QStringLiteral("%1；重连失败（第 %2 次重试）：%3")
-                                  .arg(firstError)
-                                  .arg(attempt + 1)
-                                  .arg(socket != nullptr ? socket->errorString() : QString());
-            }
-
-            return false;
+            latestRetryError = QStringLiteral("重连失败（第 %1 次重试）：%2")
+                                   .arg(attempt + 1)
+                                   .arg(m_lastError);
+            continue;
         }
 
         if (sendPayloadWithReceipt(payload, sendTimeoutMs)) {
             return true;
         }
+
+        latestRetryError = QStringLiteral("重试发送失败（第 %1 次重试）：%2")
+                               .arg(attempt + 1)
+                               .arg(m_lastError);
     }
 
-    if (!firstError.isEmpty() && !m_lastError.isEmpty()) {
-        m_lastError = QStringLiteral("%1；重试失败：%2").arg(firstError, m_lastError);
+    if (!firstError.isEmpty() && !latestRetryError.isEmpty() && latestRetryError != firstError) {
+        m_lastError = QStringLiteral("%1；%2").arg(firstError, latestRetryError);
+    } else if (!latestRetryError.isEmpty()) {
+        m_lastError = latestRetryError;
     }
 
     return false;

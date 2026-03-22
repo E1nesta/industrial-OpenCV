@@ -16,26 +16,33 @@ InspectionPersistenceWorker::InspectionPersistenceWorker(QString databasePath, Q
 {
 }
 
-void InspectionPersistenceWorker::persist(
-    const DetectResult &result,
-    const QImage &resultImage,
-    const VisionParam &param)
+void InspectionPersistenceWorker::persist(const DetectionOutput &output)
 {
-    InspectionRecord record = buildInspectionRecord(result);
+    InspectionRecord record = buildInspectionRecord(output);
 
     QString archiveMessage;
-    const bool archiveSucceeded =
-        archiveDetectionImages(result, resultImage, param, record, &archiveMessage);
+    const bool archiveSucceeded = archiveDetectionImages(output, record, &archiveMessage);
 
     QString recordError;
     const bool recordSaved = m_recordManager.saveRecord(record, &recordError);
 
-    emit persistenceCompleted(record, archiveSucceeded, archiveMessage, recordSaved, recordError);
+    PersistenceResult persistenceResult;
+    persistenceResult.inspectionId = output.result.inspectionId;
+    persistenceResult.captureId = output.request.frame.meta.captureId;
+    persistenceResult.archiveSucceeded = archiveSucceeded;
+    persistenceResult.recordSaved = recordSaved;
+    persistenceResult.archivedSourcePath = record.imagePath;
+    persistenceResult.resultImagePath = record.resultImagePath;
+    persistenceResult.record = record;
+    persistenceResult.archiveMessage = archiveMessage;
+    persistenceResult.recordError = recordError;
+
+    emit persistenceCompleted(persistenceResult);
 }
 
-QString InspectionPersistenceWorker::resolvedImageSaveDirectory(const VisionParam &param) const
+QString InspectionPersistenceWorker::resolvedImageSaveDirectory(const DetectionOutput &output) const
 {
-    const QString configuredPath = param.imageSavePath.trimmed();
+    const QString configuredPath = output.request.visionParam.imageSavePath.trimmed();
     if (configuredPath.isEmpty()) {
         const QDir appDir(QCoreApplication::applicationDirPath());
         return appDir.filePath(QString::fromUtf8(constants::kImageArchiveDirectoryName));
@@ -50,27 +57,29 @@ QString InspectionPersistenceWorker::resolvedImageSaveDirectory(const VisionPara
     return appDir.filePath(configuredPath);
 }
 
-InspectionRecord InspectionPersistenceWorker::buildInspectionRecord(const DetectResult &result) const
+InspectionRecord InspectionPersistenceWorker::buildInspectionRecord(const DetectionOutput &output) const
 {
     InspectionRecord record;
-    record.inspectionId = result.inspectionId;
+    record.inspectionId = output.result.inspectionId;
+    record.captureId = output.request.frame.meta.captureId;
     record.timestamp = utils::currentTimestamp();
     record.batchNo = QStringLiteral("LOCAL");
-    record.isOk = result.isOk;
-    record.defectCount = result.defectCount;
-    record.processTimeMs = result.processTimeMs;
-    record.imagePath = result.imagePath;
+    record.sourceType = output.request.frame.meta.sourceType;
+    record.sourcePath = output.request.frame.meta.sourcePath;
+    record.sourceName = output.request.frame.meta.sourceName;
+    record.frameIndex = output.request.frame.meta.frameIndex;
+    record.isOk = output.result.isOk;
+    record.defectCount = output.result.defectCount;
+    record.processTimeMs = output.result.processTimeMs;
     return record;
 }
 
 bool InspectionPersistenceWorker::archiveDetectionImages(
-    const DetectResult &result,
-    const QImage &resultImage,
-    const VisionParam &param,
+    const DetectionOutput &output,
     InspectionRecord &record,
     QString *errorMessage) const
 {
-    const QDir saveDir(resolvedImageSaveDirectory(param));
+    const QDir saveDir(resolvedImageSaveDirectory(output));
     if (!QDir().mkpath(saveDir.absolutePath())) {
         if (errorMessage != nullptr) {
             *errorMessage = QStringLiteral("无法创建图片归档目录：%1").arg(saveDir.absolutePath());
@@ -78,21 +87,22 @@ bool InspectionPersistenceWorker::archiveDetectionImages(
         return false;
     }
 
-    const QFileInfo sourceInfo(result.imagePath);
-    const QString baseName =
-        sourceInfo.completeBaseName().isEmpty() ? QStringLiteral("inspection") : sourceInfo.completeBaseName();
-    const QString stamp = QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd_HHmmss_zzz"));
-    const QString sourceSuffix = sourceInfo.suffix().isEmpty() ? QStringLiteral("png") : sourceInfo.suffix().toLower();
+    const QDateTime capturedAt = output.request.frame.meta.capturedAt.isValid()
+                                     ? output.request.frame.meta.capturedAt
+                                     : QDateTime::currentDateTime();
+    const QString stamp = capturedAt.toString(QStringLiteral("yyyyMMdd_HHmmss_zzz"));
 
     const QString archivedSourcePath = saveDir.filePath(
-        QStringLiteral("%1_%2_source.%3").arg(stamp, baseName, sourceSuffix));
+        QStringLiteral("%1_%2_source.png")
+            .arg(stamp, output.result.inspectionId));
     const QString archivedResultPath = saveDir.filePath(
-        QStringLiteral("%1_%2_result.png").arg(stamp, baseName));
+        QStringLiteral("%1_%2_result.png")
+            .arg(stamp, output.result.inspectionId));
 
-    const QImage sourceImage(result.imagePath);
+    const QImage sourceImage = utils::matToQImage(output.request.frame.image);
     if (sourceImage.isNull()) {
         if (errorMessage != nullptr) {
-            *errorMessage = QStringLiteral("无法读取原始图片用于归档：%1").arg(result.imagePath);
+            *errorMessage = QStringLiteral("无法转换原始帧用于归档。");
         }
         return false;
     }
@@ -100,6 +110,14 @@ bool InspectionPersistenceWorker::archiveDetectionImages(
     if (!sourceImage.save(archivedSourcePath)) {
         if (errorMessage != nullptr) {
             *errorMessage = QStringLiteral("原始图片归档失败：%1").arg(archivedSourcePath);
+        }
+        return false;
+    }
+
+    const QImage resultImage = utils::matToQImage(output.annotatedImage);
+    if (resultImage.isNull()) {
+        if (errorMessage != nullptr) {
+            *errorMessage = QStringLiteral("无法转换结果图用于归档。");
         }
         return false;
     }

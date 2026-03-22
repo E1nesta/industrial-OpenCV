@@ -32,11 +32,10 @@
 
 # Logs, temp files, and local runtime data
 *.log
-/docs/
-/README.md
 /logs/
 /tmp/
 /temp/
+/b/
 /config/
 /data/
 *.db
@@ -50,6 +49,10 @@
 *.local.json
 *.local.yaml
 *.local.yml
+
+# Internal documentation (not for external exposure)
+/README.md
+/docs/
 
 # OS-generated files
 Thumbs.db

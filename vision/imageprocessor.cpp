@@ -4,10 +4,59 @@
 #include <chrono>
 #include <functional>
 #include <limits>
+#include <stdexcept>
 
 #include <opencv2/imgproc.hpp>
 
 #include "logger/logmanager.h"
+
+namespace
+{
+cv::Mat toGrayStable(const cv::Mat &image)
+{
+    if (image.empty()) {
+        return {};
+    }
+
+    if (image.channels() == 1) {
+        return image.clone();
+    }
+
+    cv::Mat gray(image.rows, image.cols, CV_8UC1);
+
+    if (image.channels() == 3) {
+        for (int row = 0; row < image.rows; ++row) {
+            const cv::Vec3b *src = image.ptr<cv::Vec3b>(row);
+            uchar *dst = gray.ptr<uchar>(row);
+            for (int col = 0; col < image.cols; ++col) {
+                const cv::Vec3b &pixel = src[col];
+                const int blue = pixel[0];
+                const int green = pixel[1];
+                const int red = pixel[2];
+                dst[col] = static_cast<uchar>((red * 77 + green * 150 + blue * 29) >> 8);
+            }
+        }
+        return gray;
+    }
+
+    if (image.channels() == 4) {
+        for (int row = 0; row < image.rows; ++row) {
+            const cv::Vec4b *src = image.ptr<cv::Vec4b>(row);
+            uchar *dst = gray.ptr<uchar>(row);
+            for (int col = 0; col < image.cols; ++col) {
+                const cv::Vec4b &pixel = src[col];
+                const int blue = pixel[0];
+                const int green = pixel[1];
+                const int red = pixel[2];
+                dst[col] = static_cast<uchar>((red * 77 + green * 150 + blue * 29) >> 8);
+            }
+        }
+        return gray;
+    }
+
+    throw std::runtime_error("Unsupported channel count for grayscale conversion");
+}
+} // namespace
 
 DetectResult ImageProcessor::process(
     const cv::Mat &image,
@@ -76,13 +125,7 @@ DetectResult ImageProcessor::process(
     }
 
     cv::Mat gray;
-    if (workingImage.channels() == 1) {
-        gray = workingImage;
-    } else if (workingImage.channels() == 4) {
-        cv::cvtColor(workingImage, gray, cv::COLOR_BGRA2GRAY);
-    } else {
-        cv::cvtColor(workingImage, gray, cv::COLOR_BGR2GRAY);
-    }
+    gray = toGrayStable(workingImage);
     logDebug(QStringLiteral("灰度化完成。"));
 
     if (isCanceled()) {
@@ -125,7 +168,7 @@ DetectResult ImageProcessor::process(
         cv::Rect rect = cv::boundingRect(contour);
         rect.x += roiRect.x;
         rect.y += roiRect.y;
-        result.defectRects.push_back(rect);
+        result.defectRects.append(QRect(rect.x, rect.y, rect.width, rect.height));
     }
     logDebug(QStringLiteral("缺陷筛选完成：kept=%1").arg(result.defectRects.size()));
 

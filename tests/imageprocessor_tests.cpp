@@ -1,0 +1,80 @@
+#include <QtTest>
+
+#include <opencv2/imgproc.hpp>
+
+#include "vision/imageprocessor.h"
+
+class ImageProcessorTests : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void returnsFailureForEmptyImage();
+    void detectsDarkDefectOnLargeFrame();
+    void appliesRoiAndOffsetsDefectRect();
+};
+
+void ImageProcessorTests::returnsFailureForEmptyImage()
+{
+    ImageProcessor processor;
+    const DetectResult result = processor.process(cv::Mat{}, VisionParam{}, nullptr);
+
+    QVERIFY(!result.isOk);
+    QVERIFY(!result.canceled);
+    QCOMPARE(result.defectCount, 0);
+    QCOMPARE(result.message, QStringLiteral("输入图像为空。"));
+}
+
+void ImageProcessorTests::detectsDarkDefectOnLargeFrame()
+{
+    cv::Mat image(1920, 1080, CV_8UC3, cv::Scalar(255, 255, 255));
+    cv::rectangle(image, cv::Rect(220, 340, 160, 180), cv::Scalar(0, 0, 0), cv::FILLED);
+
+    VisionParam param;
+    param.threshold = 128;
+    param.minArea = 100;
+    param.maxArea = 200000;
+
+    ImageProcessor processor;
+    const DetectResult result = processor.process(image, param, nullptr);
+
+    QVERIFY(!result.canceled);
+    QVERIFY(!result.isOk);
+    QCOMPARE(result.defectCount, 1);
+    QCOMPARE(result.defectRects.size(), 1);
+
+    const QRect defectRect = result.defectRects.constFirst();
+    QVERIFY(defectRect.contains(QPoint(220, 340)));
+    QVERIFY(defectRect.width() >= 150);
+    QVERIFY(defectRect.height() >= 170);
+}
+
+void ImageProcessorTests::appliesRoiAndOffsetsDefectRect()
+{
+    cv::Mat image(800, 600, CV_8UC3, cv::Scalar(255, 255, 255));
+    cv::rectangle(image, cv::Rect(180, 220, 90, 110), cv::Scalar(0, 0, 0), cv::FILLED);
+
+    VisionParam param;
+    param.threshold = 128;
+    param.minArea = 50;
+    param.maxArea = 50000;
+    param.roi = QRect(120, 180, 240, 220);
+
+    ImageProcessor processor;
+    const DetectResult result = processor.process(image, param, nullptr);
+
+    QVERIFY(!result.canceled);
+    QVERIFY(!result.isOk);
+    QCOMPARE(result.defectCount, 1);
+    QCOMPARE(result.defectRects.size(), 1);
+
+    const QRect defectRect = result.defectRects.constFirst();
+    QVERIFY(defectRect.left() >= 175 && defectRect.left() <= 185);
+    QVERIFY(defectRect.top() >= 215 && defectRect.top() <= 225);
+    QVERIFY(defectRect.width() >= 85);
+    QVERIFY(defectRect.height() >= 105);
+}
+
+QTEST_GUILESS_MAIN(ImageProcessorTests)
+
+#include "imageprocessor_tests.moc"

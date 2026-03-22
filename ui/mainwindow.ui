@@ -30,10 +30,98 @@
         </property>
         <layout class="QVBoxLayout" name="controlLayout">
          <item>
-          <widget class="QPushButton" name="importImageButton">
-           <property name="text">
-            <string>导入图片</string>
+          <widget class="QGroupBox" name="inputGroupBox">
+           <property name="title">
+            <string>输入源</string>
            </property>
+           <layout class="QFormLayout" name="inputFormLayout">
+            <item row="0" column="0">
+             <widget class="QLabel" name="inputSourceTypeLabel">
+              <property name="text">
+               <string>类型</string>
+              </property>
+             </widget>
+            </item>
+            <item row="0" column="1">
+             <widget class="QComboBox" name="inputSourceTypeComboBox"/>
+            </item>
+            <item row="1" column="0">
+             <widget class="QLabel" name="inputSourcePathLabel">
+              <property name="text">
+               <string>路径</string>
+              </property>
+             </widget>
+            </item>
+            <item row="1" column="1">
+             <widget class="QLineEdit" name="inputSourcePathLineEdit">
+              <property name="placeholderText">
+               <string>选择图片或视频文件</string>
+              </property>
+             </widget>
+            </item>
+            <item row="2" column="0">
+             <widget class="QLabel" name="cameraDeviceLabel">
+              <property name="text">
+               <string>设备号</string>
+              </property>
+             </widget>
+            </item>
+            <item row="2" column="1">
+             <widget class="QSpinBox" name="cameraDeviceSpinBox"/>
+            </item>
+            <item row="3" column="0">
+             <widget class="QLabel" name="previewIntervalLabel">
+              <property name="text">
+               <string>预览间隔</string>
+              </property>
+             </widget>
+            </item>
+            <item row="3" column="1">
+             <widget class="QSpinBox" name="previewIntervalSpinBox"/>
+            </item>
+            <item row="4" column="0" colspan="2">
+             <widget class="QPushButton" name="browseInputSourceButton">
+              <property name="text">
+               <string>浏览输入源</string>
+              </property>
+             </widget>
+            </item>
+            <item row="5" column="0" colspan="2">
+             <widget class="QPushButton" name="openInputSourceButton">
+              <property name="text">
+               <string>打开输入源</string>
+              </property>
+             </widget>
+            </item>
+            <item row="6" column="0" colspan="2">
+             <widget class="QPushButton" name="closeInputSourceButton">
+              <property name="text">
+               <string>关闭输入源</string>
+              </property>
+             </widget>
+            </item>
+            <item row="7" column="0" colspan="2">
+             <widget class="QPushButton" name="startPreviewButton">
+              <property name="text">
+               <string>开始预览</string>
+              </property>
+             </widget>
+            </item>
+            <item row="8" column="0" colspan="2">
+             <widget class="QPushButton" name="stopPreviewButton">
+              <property name="text">
+               <string>停止预览</string>
+              </property>
+             </widget>
+            </item>
+            <item row="9" column="0" colspan="2">
+             <widget class="QPushButton" name="importImageButton">
+              <property name="text">
+               <string>选择图片文件</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
           </widget>
          </item>
          <item>

@@ -7,11 +7,14 @@
 #include "models/inspectionrecord.h"
 #include "storage/databasemanager.h"
 
+// RecordManager 负责检测记录的增删改查入口。
+// 它在 DatabaseManager 之上提供业务记录级能力。
 class RecordManager
 {
 public:
     explicit RecordManager(QString databasePath = QString());
 
+    // 记录存取接口。
     bool initialize(QString *errorMessage = nullptr) const;
     bool saveRecord(const InspectionRecord &record, QString *errorMessage = nullptr) const;
     bool lookupRecordByInspectionId(
@@ -22,6 +25,7 @@ public:
     QString databaseFilePath() const;
 
 private:
+    // 底层数据库与一次性初始化状态。
     DatabaseManager m_databaseManager;
     mutable QMutex m_initializeMutex;
     mutable bool m_isInitialized = false;

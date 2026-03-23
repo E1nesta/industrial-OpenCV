@@ -14,10 +14,12 @@ InspectionPersistenceWorker::InspectionPersistenceWorker(QString databasePath, Q
     : QObject(parent)
     , m_recordManager(std::move(databasePath))
 {
+    // 记录管理器在 worker 线程内使用，避免主线程阻塞持久化 I/O。
 }
 
 void InspectionPersistenceWorker::persist(const DetectionOutput &output)
 {
+    // 先构建结构化记录，再分别执行图片归档和数据库写入。
     InspectionRecord record = buildInspectionRecord(output);
 
     QString archiveMessage;
@@ -37,6 +39,7 @@ void InspectionPersistenceWorker::persist(const DetectionOutput &output)
     persistenceResult.archiveMessage = archiveMessage;
     persistenceResult.recordError = recordError;
 
+    // 持久化完成后统一回传结果，控制层据此刷新状态与日志。
     emit persistenceCompleted(persistenceResult);
 }
 
@@ -49,6 +52,7 @@ QString InspectionPersistenceWorker::resolvedImageSaveDirectory(const DetectionO
     }
 
     const QFileInfo pathInfo(configuredPath);
+    // 相对路径按程序目录解析，保持部署目录可迁移。
     if (pathInfo.isAbsolute()) {
         return pathInfo.absoluteFilePath();
     }
@@ -59,6 +63,7 @@ QString InspectionPersistenceWorker::resolvedImageSaveDirectory(const DetectionO
 
 InspectionRecord InspectionPersistenceWorker::buildInspectionRecord(const DetectionOutput &output) const
 {
+    // 把检测输出映射为可持久化的结构化记录。
     InspectionRecord record;
     record.inspectionId = output.result.inspectionId;
     record.captureId = output.request.frame.meta.captureId;
@@ -79,6 +84,7 @@ bool InspectionPersistenceWorker::archiveDetectionImages(
     InspectionRecord &record,
     QString *errorMessage) const
 {
+    // 归档目录按配置解析，首次写入时自动创建。
     const QDir saveDir(resolvedImageSaveDirectory(output));
     if (!QDir().mkpath(saveDir.absolutePath())) {
         if (errorMessage != nullptr) {
@@ -99,6 +105,7 @@ bool InspectionPersistenceWorker::archiveDetectionImages(
         QStringLiteral("%1_%2_result.png")
             .arg(stamp, output.result.inspectionId));
 
+    // 原图和结果图分别落盘，数据库仅保存路径索引。
     const QImage sourceImage = utils::matToQImage(output.request.frame.image);
     if (sourceImage.isNull()) {
         if (errorMessage != nullptr) {

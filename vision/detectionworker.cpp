@@ -27,6 +27,8 @@ void DetectionWorker::requestCancel()
 
 void DetectionWorker::process(const DetectionRequest &request)
 {
+    // 检测 worker 主流程：
+    // 请求校验 -> 算法处理 -> 结果绘制 -> 完成/失败/取消回调分发。
     try {
         const QString &inspectionId = request.inspectionId;
         if (m_logManager != nullptr) {
@@ -40,11 +42,13 @@ void DetectionWorker::process(const DetectionRequest &request)
                 false);
         }
 
+        // 步骤 1 - 输入校验：无效请求直接回调失败，避免进入算法链。
         if (!request.frame.isValid()) {
             emit failed(inspectionId, QStringLiteral("未提供有效的待检测帧。"));
             return;
         }
 
+        // 取消门控：在重计算前优先退出，避免无意义计算开销。
         if (m_cancelRequested.load()) {
             emit canceled(inspectionId);
             return;
@@ -64,6 +68,7 @@ void DetectionWorker::process(const DetectionRequest &request)
                     .arg(sourceImage.channels()));
         }
 
+        // 步骤 2 - 算法处理：由 ImageProcessor 执行完整检测链。
         ImageProcessor imageProcessor;
         if (m_logManager != nullptr) {
             m_logManager->info(
@@ -102,10 +107,12 @@ void DetectionWorker::process(const DetectionRequest &request)
         }
 
         if (result.canceled || m_cancelRequested.load()) {
+            // 算法阶段收到取消时，优先回调 canceled，让控制层走取消收尾路径。
             emit canceled(inspectionId);
             return;
         }
 
+        // 步骤 3 - 结果图绘制：在 worker 线程内生成标注图，主线程只处理展示转换。
         if (m_logManager != nullptr) {
             m_logManager->info(
                 QStringLiteral("检测"),
@@ -142,6 +149,7 @@ void DetectionWorker::process(const DetectionRequest &request)
         }
 
         if (m_cancelRequested.load()) {
+            // 绘制完成后再次检查取消，避免把已取消任务继续分发到下游链路。
             emit canceled(inspectionId);
             return;
         }
@@ -161,6 +169,7 @@ void DetectionWorker::process(const DetectionRequest &request)
                     .arg(request.frame.meta.captureId),
                 false);
         }
+        // 步骤 4 - 完成分发：一次性回调 completed，交由控制层分发到 UI/存储/通信链路。
         emit completed(output);
     } catch (const cv::Exception &exception) {
         emit failed(

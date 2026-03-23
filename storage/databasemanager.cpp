@@ -18,6 +18,7 @@ DatabaseManager::DatabaseManager(QString databasePath)
 
 bool DatabaseManager::initialize(QString *errorMessage) const
 {
+    // 初始化阶段使用独立短生命周期连接，避免污染业务读写连接。
     const QString connectionName = createConnectionName(QStringLiteral("init"));
     bool ok = false;
 
@@ -40,6 +41,7 @@ QString DatabaseManager::databaseFilePath() const
 
 QSqlDatabase DatabaseManager::openConnection(const QString &connectionName, QString *errorMessage) const
 {
+    // 统一确保数据库目录存在，避免首次运行时路径不可写导致打开失败。
     const QString filePath = resolvedDatabasePath();
     QDir().mkpath(QFileInfo(filePath).absolutePath());
 
@@ -61,6 +63,7 @@ QString DatabaseManager::createConnectionName(const QString &suffix) const
 
 bool DatabaseManager::ensureSchema(QSqlDatabase &database, QString *errorMessage) const
 {
+    // 记录表采用轻量单表模型，字段升级通过按列补齐保证向后兼容。
     QSqlQuery query(database);
     const bool tableOk = query.exec(QStringLiteral(
         "CREATE TABLE IF NOT EXISTS inspection_records ("
@@ -150,6 +153,7 @@ bool DatabaseManager::ensureColumnExists(
     const QString &columnDefinition,
     QString *errorMessage) const
 {
+    // 先查询现有表结构，列存在则直接复用；不存在再增量补列。
     QSqlQuery query(database);
     if (!query.exec(QStringLiteral("PRAGMA table_info(inspection_records)"))) {
         if (errorMessage != nullptr) {
@@ -181,6 +185,7 @@ QString DatabaseManager::resolvedDatabasePath() const
         return m_databasePath;
     }
 
+    // 未显式配置时，默认落在程序目录下 data/inspection.db。
     const QDir appDir(QCoreApplication::applicationDirPath());
     return appDir.filePath(
         QStringLiteral("%1/%2")

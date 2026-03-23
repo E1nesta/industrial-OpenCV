@@ -8,6 +8,8 @@
 
 class LogManager;
 
+// DetectionWorker 在后台线程执行一次完整检测任务。
+// 它负责算法调用、取消控制和结果分发，不负责 UI 或持久化。
 class DetectionWorker : public QObject
 {
     Q_OBJECT
@@ -15,18 +17,22 @@ class DetectionWorker : public QObject
 public:
     explicit DetectionWorker(LogManager *logManager, QObject *parent = nullptr);
 
+    // 控制层取消接口。
     void resetCancellation();
     void requestCancel();
 
-public slots:
-    void process(const DetectionRequest &request);
-
 signals:
+    // 发给控制层的检测结果回调信号。
     void completed(const DetectionOutput &output);
     void failed(const QString &inspectionId, const QString &errorMessage);
     void canceled(const QString &inspectionId);
 
+public slots:
+    // 检测任务入口：处理单次 DetectionRequest。
+    void process(const DetectionRequest &request);
+
 private:
+    // 日志与取消状态。
     LogManager *m_logManager = nullptr;
     std::atomic_bool m_cancelRequested = false;
 };

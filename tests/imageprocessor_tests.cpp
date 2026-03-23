@@ -12,6 +12,7 @@ private slots:
     void returnsFailureForEmptyImage();
     void detectsDarkDefectOnLargeFrame();
     void appliesRoiAndOffsetsDefectRect();
+    void supportsBgraInputWithManualGrayConversion();
 };
 
 void ImageProcessorTests::returnsFailureForEmptyImage()
@@ -73,6 +74,31 @@ void ImageProcessorTests::appliesRoiAndOffsetsDefectRect()
     QVERIFY(defectRect.top() >= 215 && defectRect.top() <= 225);
     QVERIFY(defectRect.width() >= 85);
     QVERIFY(defectRect.height() >= 105);
+}
+
+void ImageProcessorTests::supportsBgraInputWithManualGrayConversion()
+{
+    cv::Mat image(480, 640, CV_8UC4, cv::Scalar(255, 255, 255, 255));
+    cv::rectangle(image, cv::Rect(120, 150, 80, 90), cv::Scalar(0, 0, 0, 255), cv::FILLED);
+
+    VisionParam param;
+    param.threshold = 128;
+    param.minArea = 50;
+    param.maxArea = 20000;
+    param.grayConversionMode = GrayConversionMode::StableManual;
+
+    ImageProcessor processor;
+    const DetectResult result = processor.process(image, param, nullptr);
+
+    QVERIFY(!result.canceled);
+    QVERIFY(!result.isOk);
+    QCOMPARE(result.defectCount, 1);
+    QCOMPARE(result.defectRects.size(), 1);
+
+    const QRect defectRect = result.defectRects.constFirst();
+    QVERIFY(defectRect.contains(QPoint(120, 150)));
+    QVERIFY(defectRect.width() >= 75);
+    QVERIFY(defectRect.height() >= 85);
 }
 
 QTEST_GUILESS_MAIN(ImageProcessorTests)

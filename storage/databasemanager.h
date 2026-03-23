@@ -3,17 +3,21 @@
 #include <QSqlDatabase>
 #include <QString>
 
+// DatabaseManager 负责 SQLite 连接创建与表结构初始化。
+// 该类只提供底层数据库能力，不包含业务记录读写逻辑。
 class DatabaseManager
 {
 public:
     explicit DatabaseManager(QString databasePath = QString());
 
+    // 数据库初始化与连接工厂。
     bool initialize(QString *errorMessage = nullptr) const;
     QString databaseFilePath() const;
     QSqlDatabase openConnection(const QString &connectionName, QString *errorMessage = nullptr) const;
     QString createConnectionName(const QString &suffix) const;
 
 private:
+    // 内部 schema 保障逻辑。
     bool ensureSchema(QSqlDatabase &database, QString *errorMessage = nullptr) const;
     bool ensureColumnExists(
         QSqlDatabase &database,

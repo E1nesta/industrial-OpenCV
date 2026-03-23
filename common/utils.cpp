@@ -57,6 +57,7 @@ QImage matToQImage(const cv::Mat &mat)
             return {};
         }
 
+        // 仅处理当前主链支持的 8bit 1/3/4 通道类型，其他类型由上层兜底。
         switch (mat.type()) {
         case CV_8UC1: {
             QImage image(
@@ -127,6 +128,7 @@ QImage buildPreviewImage(const cv::Mat &mat, const VisionParam &param, int maxPr
         return {};
     }
 
+    // 预览链优先限制长边，控制 UI 绘制负载。
     const int longEdge = std::max(mat.cols, mat.rows);
     const double scale = (maxPreviewLongEdge > 0 && longEdge > maxPreviewLongEdge)
                              ? static_cast<double>(maxPreviewLongEdge) / static_cast<double>(longEdge)
@@ -139,6 +141,7 @@ QImage buildPreviewImage(const cv::Mat &mat, const VisionParam &param, int maxPr
         preview = mat.clone();
     }
 
+    // 预览图只叠加 ROI 框，不引入检测链逻辑。
     const QRect previewRoi = scaledRoi(param.roi, scale);
     if (previewRoi.isValid() && !previewRoi.isEmpty()) {
         cv::rectangle(
@@ -157,17 +160,23 @@ cv::Mat qImageToMat(const QImage &image)
         return {};
     }
 
+    // 统一先转 RGBA8888，再手工映射到 BGR，避免依赖不稳定颜色转换路径。
     const QImage converted = image.convertToFormat(QImage::Format_RGBA8888);
-    cv::Mat rgba(
-        converted.height(),
-        converted.width(),
-        CV_8UC4,
-        const_cast<uchar *>(converted.constBits()),
-        static_cast<size_t>(converted.bytesPerLine()));
+    cv::Mat bgr(converted.height(), converted.width(), CV_8UC3);
 
-    cv::Mat bgr;
-    cv::cvtColor(rgba, bgr, cv::COLOR_RGBA2BGR);
-    return bgr.clone();
+    for (int row = 0; row < converted.height(); ++row) {
+        const uchar *src = converted.constScanLine(row);
+        uchar *dst = bgr.ptr<uchar>(row);
+        for (int col = 0; col < converted.width(); ++col) {
+            const int srcOffset = col * 4;
+            const int dstOffset = col * 3;
+            dst[dstOffset] = src[srcOffset + 2];
+            dst[dstOffset + 1] = src[srcOffset + 1];
+            dst[dstOffset + 2] = src[srcOffset];
+        }
+    }
+
+    return bgr;
 }
 
 cv::Mat drawDetectionOverlay(const cv::Mat &image, const DetectResult &result)
@@ -177,6 +186,7 @@ cv::Mat drawDetectionOverlay(const cv::Mat &image, const DetectResult &result)
     }
 
     cv::Mat annotated = image.clone();
+    // 按筛选后 defectRects 叠加缺陷框。
     for (const auto &rect : result.defectRects) {
         cv::rectangle(
             annotated,
@@ -185,6 +195,7 @@ cv::Mat drawDetectionOverlay(const cv::Mat &image, const DetectResult &result)
             2);
     }
 
+    // 左上角固定显示结论与摘要，便于演示和记录回看。
     const std::string resultText = boolToResultText(result.isOk).toStdString();
     const cv::Scalar resultColor = result.isOk ? cv::Scalar(0, 180, 0) : cv::Scalar(0, 0, 255);
     cv::putText(annotated, resultText, cv::Point(24, 42), cv::FONT_HERSHEY_SIMPLEX, 1.0, resultColor, 2);

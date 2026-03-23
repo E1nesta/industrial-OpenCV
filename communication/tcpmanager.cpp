@@ -8,6 +8,7 @@ namespace
 {
 QByteArray buildResultPayload(bool isOk)
 {
+    // 当前协议采用单行文本报文，便于外部调试工具快速联调。
     return QByteArray("RESULT:") + utils::boolToResultText(isOk).toUtf8() + '\n';
 }
 
@@ -19,6 +20,7 @@ bool isAckReply(const QByteArray &reply)
 
 void TcpManager::setDeviceConfig(const DeviceConfig &config)
 {
+    // 运行中切换目标地址时先断开旧连接，避免后续发送误用旧会话。
     if (isConnected() &&
         (m_deviceConfig.ip != config.ip || m_deviceConfig.port != config.port)) {
         disconnectFromDevice();
@@ -49,6 +51,7 @@ bool TcpManager::connectToDevice(int timeoutMs)
         return false;
     }
 
+    // 连接接口保持幂等：已连接时直接复用现有连接。
     if (isConnected()) {
         return true;
     }
@@ -97,6 +100,7 @@ bool TcpManager::sendResult(bool isOk, int timeoutMs)
     const int sendTimeoutMs = resolvedSendTimeoutMs(timeoutMs);
     const int retryCount = resolvedSendRetryCount();
 
+    // 发送流程：建立连接 -> 发送报文 -> 等待回执；失败时按配置重试。
     if (!connectToDevice(connectTimeoutMs)) {
         return false;
     }
@@ -153,6 +157,7 @@ QString TcpManager::peerDescription() const
 
 QString TcpManager::statusText() const
 {
+    // 状态文本优先展示“连接态 + 最近一次通信结果”，方便 UI 直接复用。
     if (isConnected()) {
         if (!m_lastReply.isEmpty()) {
             return QStringLiteral("已连接 %1（最近回执：%2）").arg(peerDescription(), m_lastReply);
@@ -181,6 +186,7 @@ bool TcpManager::sendPayloadWithReceipt(const QByteArray &payload, int timeoutMs
 
     QTcpSocket &socket = ensureSocket();
 
+    // 清理历史可读数据，确保本次读取到的是当前发送对应的回执。
     if (socket.bytesAvailable() > 0) {
         socket.readAll();
     }
@@ -193,6 +199,7 @@ bool TcpManager::sendPayloadWithReceipt(const QByteArray &payload, int timeoutMs
     }
 
     if (!socket.waitForBytesWritten(timeoutMs)) {
+        // 写超时或写失败后主动断连，避免保留未知状态连接。
         m_lastError = socket.errorString();
         disconnectFromDevice(false);
         return false;
@@ -204,6 +211,7 @@ bool TcpManager::sendPayloadWithReceipt(const QByteArray &payload, int timeoutMs
         return false;
     }
 
+    // 回执按单行文本读取并去除收尾空白。
     const QByteArray replyBytes = socket.readAll().trimmed();
     if (replyBytes.isEmpty()) {
         m_lastError = QStringLiteral("结果已发送，但回执为空。");
@@ -238,6 +246,7 @@ QTcpSocket &TcpManager::ensureSocket()
 
 int TcpManager::resolvedConnectTimeoutMs(int timeoutMs) const
 {
+    // 运行时参数优先；否则使用配置值并设置最小保护下限。
     if (timeoutMs > 0) {
         return timeoutMs;
     }

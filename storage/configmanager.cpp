@@ -19,11 +19,14 @@ VisionParam ConfigManager::loadVisionParam() const
     VisionParam param;
     QSettings settings(resolvedConfigPath(), QSettings::IniFormat);
 
+    // 视觉参数统一从 vision 分组读取，缺失字段回退到结构默认值。
     settings.beginGroup("vision");
     param.threshold = settings.value("threshold", param.threshold).toInt();
     param.minArea = settings.value("minArea", param.minArea).toInt();
     param.maxArea = settings.value("maxArea", param.maxArea).toInt();
     param.enableMorphology = settings.value("enableMorphology", param.enableMorphology).toBool();
+    param.grayConversionMode = grayConversionModeFromString(
+        settings.value("grayConversionMode", grayConversionModeToString(param.grayConversionMode)).toString());
     param.imageSavePath = settings.value("imageSavePath", param.imageSavePath).toString();
 
     const int roiX = settings.value("roiX", 0).toInt();
@@ -62,6 +65,7 @@ InputSourceConfig ConfigManager::loadInputSourceConfig() const
     InputSourceConfig config;
     QSettings settings(resolvedConfigPath(), QSettings::IniFormat);
 
+    // 输入源配置按“类型 + 路径/设备号 + 预览节拍”组织。
     settings.beginGroup("input");
     config.type = inputSourceTypeFromString(
         settings.value("type", inputSourceTypeToString(config.type)).toString());
@@ -73,6 +77,7 @@ InputSourceConfig ConfigManager::loadInputSourceConfig() const
     settings.endGroup();
 
     if (config.type == InputSourceType::Camera && config.sourceName.trimmed().isEmpty()) {
+        // 摄像头模式缺少名称时补默认名，便于 UI 直接展示。
         config.sourceName = QStringLiteral("camera-%1").arg(config.deviceIndex);
     }
 
@@ -91,6 +96,7 @@ QString ConfigManager::loadLogLevel() const
 void ConfigManager::saveVisionParam(const VisionParam &param) const
 {
     const QString filePath = resolvedConfigPath();
+    // 写配置前确保目录存在，避免首次启动写入失败。
     QDir().mkpath(QFileInfo(filePath).absolutePath());
 
     QSettings settings(filePath, QSettings::IniFormat);
@@ -99,6 +105,7 @@ void ConfigManager::saveVisionParam(const VisionParam &param) const
     settings.setValue("minArea", param.minArea);
     settings.setValue("maxArea", param.maxArea);
     settings.setValue("enableMorphology", param.enableMorphology);
+    settings.setValue("grayConversionMode", grayConversionModeToString(param.grayConversionMode));
     settings.setValue("imageSavePath", param.imageSavePath);
     settings.setValue("roiX", param.roi.x());
     settings.setValue("roiY", param.roi.y());
@@ -161,10 +168,12 @@ QString ConfigManager::configFilePath() const
 
 QString ConfigManager::resolvedConfigPath() const
 {
+    // 外部传入路径优先，便于测试或多配置场景复用。
     if (!m_configPath.isEmpty()) {
         return m_configPath;
     }
 
+    // 默认落盘到应用目录下 config 子目录。
     const QDir appDir(QCoreApplication::applicationDirPath());
     return appDir.filePath(
         QStringLiteral("%1/%2")

@@ -10,6 +10,8 @@ class UtilsTests : public QObject
 
 private slots:
     void convertsBgrMatToQImage();
+    void convertsQImageToBgrMat();
+    void convertsQImageToBgrMatWithExpectedChannelOrder();
     void buildsPreviewImageWithDownsampleAndRoi();
     void drawsDetectionOverlay();
 };
@@ -24,6 +26,41 @@ void UtilsTests::convertsBgrMatToQImage()
     QCOMPARE(converted.width(), image.cols);
     QCOMPARE(converted.height(), image.rows);
     QCOMPARE(converted.format(), QImage::Format_BGR888);
+}
+
+void UtilsTests::convertsQImageToBgrMat()
+{
+    QImage image(320, 240, QImage::Format_RGB32);
+    image.fill(qRgb(12, 34, 56));
+
+    const cv::Mat converted = utils::qImageToMat(image);
+
+    QVERIFY(!converted.empty());
+    QCOMPARE(converted.cols, image.width());
+    QCOMPARE(converted.rows, image.height());
+    QCOMPARE(converted.type(), CV_8UC3);
+}
+
+void UtilsTests::convertsQImageToBgrMatWithExpectedChannelOrder()
+{
+    QImage image(2, 1, QImage::Format_RGBA8888);
+    image.setPixelColor(0, 0, QColor(200, 150, 100, 255));
+    image.setPixelColor(1, 0, QColor(30, 20, 10, 255));
+
+    const cv::Mat converted = utils::qImageToMat(image);
+
+    QVERIFY(!converted.empty());
+    QCOMPARE(converted.type(), CV_8UC3);
+
+    const cv::Vec3b firstPixel = converted.at<cv::Vec3b>(0, 0);
+    QCOMPARE(static_cast<int>(firstPixel[0]), 100);
+    QCOMPARE(static_cast<int>(firstPixel[1]), 150);
+    QCOMPARE(static_cast<int>(firstPixel[2]), 200);
+
+    const cv::Vec3b secondPixel = converted.at<cv::Vec3b>(0, 1);
+    QCOMPARE(static_cast<int>(secondPixel[0]), 10);
+    QCOMPARE(static_cast<int>(secondPixel[1]), 20);
+    QCOMPARE(static_cast<int>(secondPixel[2]), 30);
 }
 
 void UtilsTests::buildsPreviewImageWithDownsampleAndRoi()

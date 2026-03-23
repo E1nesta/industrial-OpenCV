@@ -10,6 +10,7 @@
 RecordManager::RecordManager(QString databasePath)
     : m_databaseManager(std::move(databasePath))
 {
+    // 底层数据库路径在构造时注入，后续连接均复用该配置。
 }
 
 bool RecordManager::initialize(QString *errorMessage) const
@@ -18,6 +19,7 @@ bool RecordManager::initialize(QString *errorMessage) const
         errorMessage->clear();
     }
 
+    // 初始化只需成功一次，后续调用快速返回，避免重复建表。
     QMutexLocker locker(&m_initializeMutex);
     if (m_isInitialized) {
         return true;
@@ -37,6 +39,7 @@ bool RecordManager::saveRecord(const InspectionRecord &record, QString *errorMes
         return false;
     }
 
+    // 每次写入使用独立连接名，符合 Qt SQL 的线程使用约束。
     const QString connectionName = m_databaseManager.createConnectionName(QStringLiteral("save"));
     bool ok = false;
 
@@ -81,6 +84,7 @@ bool RecordManager::lookupRecordByInspectionId(
     InspectionRecord *record,
     QString *errorMessage) const
 {
+    // 回查入口先统一做参数校验，避免无效查询污染错误信息。
     if (errorMessage != nullptr) {
         errorMessage->clear();
     }
@@ -106,6 +110,7 @@ bool RecordManager::lookupRecordByInspectionId(
         return false;
     }
 
+    // 按 inspectionId 回查最近一条记录，支持结果回看场景。
     const QString connectionName = m_databaseManager.createConnectionName(QStringLiteral("lookup"));
     bool found = false;
 
@@ -157,6 +162,7 @@ QList<InspectionRecord> RecordManager::recentRecords(int limit, QString *errorMe
         return records;
     }
 
+    // 最近记录用于界面列表展示，按自增 id 逆序读取。
     const QString connectionName = m_databaseManager.createConnectionName(QStringLiteral("recent"));
     {
         QSqlDatabase database = m_databaseManager.openConnection(connectionName, errorMessage);
@@ -201,5 +207,6 @@ QList<InspectionRecord> RecordManager::recentRecords(int limit, QString *errorMe
 
 QString RecordManager::databaseFilePath() const
 {
+    // 直接复用 DatabaseManager 的最终路径解析结果。
     return m_databaseManager.databaseFilePath();
 }

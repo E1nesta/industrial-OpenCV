@@ -11,6 +11,7 @@
 #include <QImage>
 #include <QMessageBox>
 #include <QSignalBlocker>
+#include <QSizePolicy>
 #include <QStatusBar>
 #include <QTableWidgetItem>
 #include <QTextDocument>
@@ -56,6 +57,32 @@ QString sourcePlaceholderText(InputSourceType type)
         return QStringLiteral("等待导入图片");
     }
 }
+
+QString inputSourcePathLabelText(InputSourceType type)
+{
+    switch (type) {
+    case InputSourceType::VideoFile:
+        return QStringLiteral("视频");
+    case InputSourceType::FileImage:
+        return QStringLiteral("图片");
+    case InputSourceType::Camera:
+    default:
+        return QStringLiteral("路径");
+    }
+}
+
+QString inputSourcePathPlaceholderText(InputSourceType type)
+{
+    switch (type) {
+    case InputSourceType::VideoFile:
+        return QStringLiteral("选择视频文件");
+    case InputSourceType::FileImage:
+        return QStringLiteral("选择图片文件");
+    case InputSourceType::Camera:
+    default:
+        return QStringLiteral("");
+    }
+}
 } // namespace
 
 MainWindow::MainWindow(AppController *controller, QWidget *parent)
@@ -78,6 +105,7 @@ MainWindow::~MainWindow()
 
 void MainWindow::onImportImageClicked()
 {
+    // 输入选择入口：文件模式导入图片，视频模式选择视频源并等待预览。
     const InputSourceConfig config = collectInputSourceConfig();
     const bool isVideoMode = config.type == InputSourceType::VideoFile;
     const QString filePath = QFileDialog::getOpenFileName(
@@ -95,6 +123,7 @@ void MainWindow::onImportImageClicked()
     m_controller->setInputSourceConfig(collectInputSourceConfig());
 
     if (isVideoMode) {
+        // 视频模式只更新来源与占位状态，实际画面由预览帧驱动刷新。
         m_currentImagePath.clear();
         m_previewFrameRendered = false;
         m_sourceImageView->clearImage();
@@ -130,6 +159,7 @@ void MainWindow::onImportImageClicked()
 
 void MainWindow::onStartDetectionClicked()
 {
+    // 检测入口统一先同步最新参数，再按输入源类型分发到图片/当前帧检测链。
     m_controller->setVisionParam(collectVisionParam());
 
     if (collectInputSourceConfig().type == InputSourceType::FileImage) {
@@ -175,6 +205,7 @@ void MainWindow::onStartDetectionClicked()
 
 void MainWindow::onStopDetectionClicked()
 {
+    // UI 停止入口：请求控制器取消当前检测任务并更新界面提示。
     if (!m_controller->cancelDetection()) {
         return;
     }
@@ -185,6 +216,7 @@ void MainWindow::onStopDetectionClicked()
 
 void MainWindow::onExportRecordsClicked()
 {
+    // 记录导出入口：把最近记录导出为 CSV 供演示归档。
     if (m_recentRecords.isEmpty()) {
         QMessageBox::information(this, tr("暂无可导出记录"), tr("当前没有可导出的最近记录。"));
         return;
@@ -234,6 +266,7 @@ void MainWindow::onExportRecordsClicked()
 
 void MainWindow::onRecentRecordActivated(int row, int column)
 {
+    // 历史记录入口：双击行后加载对应原图和结果图。
     Q_UNUSED(column);
 
     if (row < 0 || row >= m_recentRecords.size()) {
@@ -245,11 +278,13 @@ void MainWindow::onRecentRecordActivated(int row, int column)
 
 void MainWindow::onLoadParamClicked()
 {
+    // 参数重载入口：从配置文件回填控制器与界面状态。
     m_controller->reloadConfig();
 }
 
 void MainWindow::onSaveParamClicked()
 {
+    // 参数保存入口：采集当前界面参数并统一落盘。
     m_controller->setVisionParam(collectVisionParam());
     m_controller->setDeviceConfig(collectDeviceConfig());
     m_controller->setInputSourceConfig(collectInputSourceConfig());
@@ -258,11 +293,13 @@ void MainWindow::onSaveParamClicked()
 
 void MainWindow::onResetParamClicked()
 {
+    // 参数重置入口：恢复默认值并触发界面同步。
     m_controller->resetToDefaults();
 }
 
 void MainWindow::onTcpConnectClicked()
 {
+    // TCP 按钮入口：按当前连接态在“连接/断开”之间切换。
     m_controller->setDeviceConfig(collectDeviceConfig());
 
     if (m_controller->isTcpConnected()) {
@@ -277,6 +314,7 @@ void MainWindow::onTcpConnectClicked()
 
 void MainWindow::onInputSourceTypeChanged()
 {
+    // 输入源类型切换时，先处理打开态收尾，再重置界面显示上下文。
     const InputSourceConfig previousConfig = m_controller->inputSourceConfig();
     const InputSourceConfig config = collectInputSourceConfig();
     if (previousConfig.type != config.type && m_controller->captureStatus().opened) {
@@ -287,13 +325,10 @@ void MainWindow::onInputSourceTypeChanged()
         m_currentImagePath.clear();
         m_previewFrameRendered = false;
         m_sourceImageView->clearImage();
+        ui->inputSourcePathLineEdit->clear();
         if (config.type == InputSourceType::FileImage) {
-            ui->inputSourcePathLineEdit->clear();
             ui->currentImageValueLabel->setText(QStringLiteral("未选择"));
         } else {
-            if (previousConfig.type == InputSourceType::FileImage) {
-                ui->inputSourcePathLineEdit->clear();
-            }
             ui->currentImageValueLabel->setText(sourcePlaceholderText(config.type));
         }
     }
@@ -305,11 +340,13 @@ void MainWindow::onInputSourceTypeChanged()
 
 void MainWindow::onBrowseInputSourceClicked()
 {
+    // 浏览入口复用导入流程，保持来源选择路径一致。
     onImportImageClicked();
 }
 
 void MainWindow::onOpenInputSourceClicked()
 {
+    // 打开输入源入口：提交当前来源配置并触发控制器打开流程。
     m_controller->setInputSourceConfig(collectInputSourceConfig());
     if (!m_controller->openInputSource()) {
         QMessageBox::warning(this, tr("输入源打开失败"), m_controller->statusMessage());
@@ -318,11 +355,13 @@ void MainWindow::onOpenInputSourceClicked()
 
 void MainWindow::onCloseInputSourceClicked()
 {
+    // 关闭输入源入口：统一交给控制器收敛采集状态。
     m_controller->closeInputSource();
 }
 
 void MainWindow::onStartPreviewClicked()
 {
+    // 启动预览入口：提交来源配置后触发预览链路。
     m_controller->setInputSourceConfig(collectInputSourceConfig());
     if (!m_controller->startPreview()) {
         QMessageBox::warning(this, tr("预览未启动"), m_controller->statusMessage());
@@ -331,11 +370,35 @@ void MainWindow::onStartPreviewClicked()
 
 void MainWindow::onStopPreviewClicked()
 {
+    // 停止预览入口：终止预览链路并保持输入源连接态。
     m_controller->stopPreview();
+}
+
+void MainWindow::onStartContinuousDetectionClicked()
+{
+    // 连续检测入口：同步参数后启动“预览帧驱动”的检测节拍。
+    m_controller->setVisionParam(collectVisionParam());
+    m_controller->setContinuousDetectionIntervalMs(ui->continuousDetectionIntervalSpinBox->value());
+    m_controller->setInputSourceConfig(collectInputSourceConfig());
+
+    if (!m_controller->startContinuousDetection()) {
+        QMessageBox::warning(this, tr("连续检测未启动"), m_controller->statusMessage());
+        return;
+    }
+
+    statusBar()->showMessage(tr("连续检测已启动"), 3000);
+}
+
+void MainWindow::onStopContinuousDetectionClicked()
+{
+    // 连续检测停止入口：关闭节拍并刷新界面提示。
+    m_controller->stopContinuousDetection();
+    statusBar()->showMessage(tr("连续检测已停止"), 3000);
 }
 
 void MainWindow::onDetectionStarted()
 {
+    // 检测开始回调：先清空旧结果并切换到“检测中”展示态。
     m_resultImageView->clearImage();
     ui->resultStateValueLabel->setText(QStringLiteral("检测中"));
     ui->defectCountValueLabel->setText(QStringLiteral("--"));
@@ -345,6 +408,7 @@ void MainWindow::onDetectionStarted()
 
 void MainWindow::onDetectionFinished(const DetectResult &result, const QImage &resultImage)
 {
+    // 检测完成回调：展示结果图并更新检测摘要信息。
     m_controller->logManager().info(
         QStringLiteral("界面"),
         QStringLiteral("界面收到检测完成：inspectionId=%1 isNull=%2 size=%3x%4")
@@ -366,6 +430,7 @@ void MainWindow::onDetectionFinished(const DetectResult &result, const QImage &r
 
 void MainWindow::onDetectionFailed(const QString &errorMessage)
 {
+    // 检测失败回调：更新失败态并弹出错误说明。
     ui->resultStateValueLabel->setText(QStringLiteral("失败"));
     ui->defectCountValueLabel->setText(QStringLiteral("--"));
     ui->processTimeValueLabel->setText(QStringLiteral("--"));
@@ -375,6 +440,7 @@ void MainWindow::onDetectionFailed(const QString &errorMessage)
 
 void MainWindow::onDetectionCanceled()
 {
+    // 检测取消回调：复位结果展示并提示任务已取消。
     ui->resultStateValueLabel->setText(QStringLiteral("已取消"));
     ui->defectCountValueLabel->setText(QStringLiteral("--"));
     ui->processTimeValueLabel->setText(QStringLiteral("--"));
@@ -384,6 +450,7 @@ void MainWindow::onDetectionCanceled()
 
 void MainWindow::onDetectionRunningChanged(bool isRunning)
 {
+    // 检测运行态是界面启停规则的总开关：统一控制参数编辑、TCP 配置和采集操作。
     const bool cancelRequested = m_controller->isDetectionCancelRequested();
 
     if (isRunning && cancelRequested) {
@@ -417,18 +484,21 @@ void MainWindow::onDetectionRunningChanged(bool isRunning)
 
 void MainWindow::onControllerStatusChanged(const QString &message)
 {
+    // 控制器状态回调：统一同步到状态栏和状态标签。
     ui->statusValueLabel->setText(message);
     statusBar()->showMessage(message, 5000);
 }
 
 void MainWindow::onCaptureStatusChanged(const CaptureStatusSnapshot &status)
 {
+    // 采集状态回调：界面不直接消费细节，仅触发统一按钮状态同步。
     Q_UNUSED(status);
     syncCaptureState();
 }
 
 void MainWindow::onPreviewFrameUpdated(const QImage &previewImage)
 {
+    // 预览帧是采集链到界面的主通道，首帧到达时额外记录一次提示日志。
     const CaptureStatusSnapshot &status = m_controller->captureStatus();
     if (previewImage.isNull()) {
         m_previewFrameRendered = false;
@@ -462,6 +532,7 @@ void MainWindow::onPreviewFrameUpdated(const QImage &previewImage)
 
 void MainWindow::syncFromController()
 {
+    // 全量同步入口：把控制器当前配置与状态回填到所有相关控件。
     const VisionParam &param = m_controller->visionParam();
     const DeviceConfig &deviceConfig = m_controller->deviceConfig();
     const InputSourceConfig &inputConfig = m_controller->inputSourceConfig();
@@ -481,11 +552,7 @@ void MainWindow::syncFromController()
     ui->inputSourcePathLineEdit->setText(inputConfig.sourcePath);
     ui->cameraDeviceSpinBox->setValue(inputConfig.deviceIndex);
     ui->previewIntervalSpinBox->setValue(inputConfig.previewIntervalMs);
-    {
-        const QSignalBlocker blocker(ui->logCaptureLevelComboBox);
-        ui->logCaptureLevelComboBox->setCurrentText(m_controller->logManager().minimumLevelName());
-    }
-
+    ui->continuousDetectionIntervalSpinBox->setValue(m_controller->continuousDetectionIntervalMs());
     ui->stageValueLabel->setText(m_controller->projectStage());
     ui->configPathValueLabel->setText(m_controller->configFilePath());
 
@@ -501,6 +568,7 @@ void MainWindow::syncFromController()
 
 void MainWindow::syncRecentRecords()
 {
+    // 最近记录同步入口：从控制器拉取数据并刷新表格。
     updateRecentRecordsTable(m_controller->recentRecords());
 }
 
@@ -560,19 +628,11 @@ QRect MainWindow::collectRoi() const
 
 void MainWindow::displayRecordDetails(const InspectionRecord &record)
 {
+    // 记录详情展示：加载历史原图/结果图并更新结果摘要区域。
     ui->currentImageValueLabel->setText(record.imagePath);
     ui->resultStateValueLabel->setText(utils::boolToResultText(record.isOk));
     ui->defectCountValueLabel->setText(QString::number(record.defectCount));
     ui->processTimeValueLabel->setText(QStringLiteral("%1 ms").arg(record.processTimeMs, 0, 'f', 2));
-    ui->selectedRecordDetailValueLabel->setText(
-        QStringLiteral("时间：%1\n批次：%2\n结果：%3\n缺陷数：%4\n耗时：%5 ms\n原图：%6\n结果图：%7")
-            .arg(record.timestamp,
-                 record.batchNo.isEmpty() ? QStringLiteral("未设置") : record.batchNo,
-                 utils::boolToResultText(record.isOk))
-            .arg(record.defectCount)
-            .arg(record.processTimeMs, 0, 'f', 2)
-            .arg(record.imagePath,
-                 record.resultImagePath.isEmpty() ? QStringLiteral("未归档") : record.resultImagePath));
 
     m_resultImageView->clearImage();
 
@@ -625,6 +685,7 @@ void MainWindow::displayRecordDetails(const InspectionRecord &record)
 
 void MainWindow::refreshLogView()
 {
+    // 日志视图刷新：按过滤条件重建当前可见日志窗口。
     ui->logPlainTextEdit->clear();
 
     for (const LogEvent &event : m_uiLogEvents) {
@@ -636,6 +697,7 @@ void MainWindow::refreshLogView()
 
 bool MainWindow::logMatchesFilters(const LogEvent &event) const
 {
+    // 日志过滤判定：级别与模块双条件同时生效。
     const QString levelFilter = ui->logLevelFilterComboBox->currentText();
     if (levelFilter != QStringLiteral("全部") && event.level != levelFilter) {
         return false;
@@ -651,6 +713,7 @@ bool MainWindow::logMatchesFilters(const LogEvent &event) const
 
 void MainWindow::ensureLogModuleOption(const QString &module)
 {
+    // 模块筛选维护：增量添加新模块，避免下拉项重复。
     if (module.isEmpty() || m_knownLogModules.contains(module)) {
         return;
     }
@@ -661,11 +724,13 @@ void MainWindow::ensureLogModuleOption(const QString &module)
 
 void MainWindow::appendLog(const QString &message)
 {
+    // 日志追加出口：保持日志控件写入路径单一。
     ui->logPlainTextEdit->appendPlainText(message);
 }
 
 void MainWindow::updateRecentRecordsTable(const QList<InspectionRecord> &records)
 {
+    // 表格刷新入口：把记录列表映射为可双击回看的表格行。
     m_recentRecords = records;
     ui->recentRecordsTableWidget->clearContents();
     ui->recentRecordsTableWidget->setRowCount(records.size());
@@ -692,13 +757,11 @@ void MainWindow::updateRecentRecordsTable(const QList<InspectionRecord> &records
         ui->recentRecordsTableWidget->setItem(row, 4, imageItem);
     }
 
-    if (records.isEmpty()) {
-        ui->selectedRecordDetailValueLabel->setText(QStringLiteral("暂无历史记录。"));
-    }
 }
 
 void MainWindow::setRoiControls(const QRect &roi)
 {
+    // ROI 控件回填：通过信号阻断避免回填触发二次联动。
     const QSignalBlocker xBlocker(ui->roiXSpinBox);
     const QSignalBlocker yBlocker(ui->roiYSpinBox);
     const QSignalBlocker widthBlocker(ui->roiWidthSpinBox);
@@ -721,11 +784,13 @@ void MainWindow::setRoiControls(const QRect &roi)
 
 void MainWindow::updateRoiSummary()
 {
+    // ROI 摘要出口：把当前 ROI 统一格式化为可读文本。
     ui->roiValueLabel->setText(utils::formatRoi(collectRoi()));
 }
 
 void MainWindow::updateInputSourceUi()
 {
+    // 输入源相关控件显隐统一在这里维护，避免散落在多个槽函数里。
     const InputSourceConfig config = m_controller->inputSourceConfig();
     const bool isFileMode = config.type == InputSourceType::FileImage;
     const bool isCameraMode = config.type == InputSourceType::Camera;
@@ -733,6 +798,8 @@ void MainWindow::updateInputSourceUi()
 
     ui->inputSourcePathLabel->setVisible(!isCameraMode);
     ui->inputSourcePathLineEdit->setVisible(!isCameraMode);
+    ui->inputSourcePathLabel->setText(inputSourcePathLabelText(config.type));
+    ui->inputSourcePathLineEdit->setPlaceholderText(inputSourcePathPlaceholderText(config.type));
     ui->browseInputSourceButton->setVisible(isVideoMode);
     ui->cameraDeviceLabel->setVisible(isCameraMode);
     ui->cameraDeviceSpinBox->setVisible(isCameraMode);
@@ -743,7 +810,6 @@ void MainWindow::updateInputSourceUi()
     ui->startPreviewButton->setVisible(!isFileMode);
     ui->stopPreviewButton->setVisible(!isFileMode);
     ui->importImageButton->setVisible(isFileMode);
-    ui->sourceTitleLabel->setText(isFileMode ? QStringLiteral("原始图像") : QStringLiteral("当前帧"));
     m_sourceImageView->setPlaceholderText(sourcePlaceholderText(config.type));
     if (isFileMode && m_currentImagePath.isEmpty()) {
         ui->currentImageValueLabel->setText(QStringLiteral("未选择"));
@@ -758,6 +824,7 @@ void MainWindow::updateInputSourceUi()
 
 void MainWindow::bindSignals()
 {
+    // UI -> MainWindow：按钮、筛选和局部参数变化。
     connect(ui->importImageButton, &QPushButton::clicked, this, &MainWindow::onImportImageClicked);
     connect(
         ui->browseInputSourceButton,
@@ -773,6 +840,16 @@ void MainWindow::bindSignals()
     connect(ui->closeInputSourceButton, &QPushButton::clicked, this, &MainWindow::onCloseInputSourceClicked);
     connect(ui->startPreviewButton, &QPushButton::clicked, this, &MainWindow::onStartPreviewClicked);
     connect(ui->stopPreviewButton, &QPushButton::clicked, this, &MainWindow::onStopPreviewClicked);
+    connect(
+        ui->startContinuousDetectionButton,
+        &QPushButton::clicked,
+        this,
+        &MainWindow::onStartContinuousDetectionClicked);
+    connect(
+        ui->stopContinuousDetectionButton,
+        &QPushButton::clicked,
+        this,
+        &MainWindow::onStopContinuousDetectionClicked);
     connect(ui->startDetectionButton, &QPushButton::clicked, this, &MainWindow::onStartDetectionClicked);
     connect(ui->stopDetectionButton, &QPushButton::clicked, this, &MainWindow::onStopDetectionClicked);
     connect(ui->loadParamButton, &QPushButton::clicked, this, &MainWindow::onLoadParamClicked);
@@ -813,11 +890,6 @@ void MainWindow::bindSignals()
             QStringLiteral("图片保存目录已更新：%1").arg(directory));
     });
     connect(
-        ui->logCaptureLevelComboBox,
-        &QComboBox::currentTextChanged,
-        this,
-        &MainWindow::onRuntimeLogLevelChanged);
-    connect(
         ui->logLevelFilterComboBox,
         &QComboBox::currentTextChanged,
         this,
@@ -831,19 +903,11 @@ void MainWindow::bindSignals()
         m_uiLogEvents.clear();
         refreshLogView();
     });
-    connect(&m_controller->logManager(), &LogManager::uiLogGenerated, this, &MainWindow::onUiLogGenerated);
-    connect(
-        &m_controller->logManager(),
-        &LogManager::minimumLevelChanged,
-        this,
-        [this](const QString &levelName) {
-            const QSignalBlocker blocker(ui->logCaptureLevelComboBox);
-            ui->logCaptureLevelComboBox->setCurrentText(levelName);
-            statusBar()->showMessage(
-                tr("运行时日志级别已切换为 %1").arg(levelName),
-                3000);
-        });
 
+    // LogManager -> MainWindow：界面日志流。
+    connect(&m_controller->logManager(), &LogManager::uiLogGenerated, this, &MainWindow::onUiLogGenerated);
+
+    // AppController -> MainWindow：检测、采集、配置与通信状态回调。
     connect(m_controller, &AppController::detectionStarted, this, &MainWindow::onDetectionStarted);
     connect(m_controller, &AppController::detectionFinished, this, &MainWindow::onDetectionFinished);
     connect(m_controller, &AppController::detectionFailed, this, &MainWindow::onDetectionFailed);
@@ -861,10 +925,14 @@ void MainWindow::bindSignals()
     connect(m_controller, &AppController::previewFrameUpdated, this, &MainWindow::onPreviewFrameUpdated);
     connect(m_controller, &AppController::recordsChanged, this, &MainWindow::syncRecentRecords);
     connect(m_controller, &AppController::tcpStateChanged, this, &MainWindow::syncTcpState);
+    connect(m_controller, &AppController::continuousDetectionStateChanged, this, [this](bool) {
+        syncCaptureState();
+    });
 }
 
 void MainWindow::setupImageViews()
 {
+    // 图像区域初始化：挂载源图和结果图自定义视图控件。
     auto *sourceLayout = new QVBoxLayout(ui->sourceImageHost);
     sourceLayout->setContentsMargins(0, 0, 0, 0);
     m_sourceImageView = new ImageViewWidget(ui->sourceImageHost);
@@ -880,6 +948,20 @@ void MainWindow::setupImageViews()
 
 void MainWindow::setupUiState()
 {
+    // 初始布局权重和控件默认值统一在这里设置，避免构造函数过重。
+    ui->startPreviewButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    ui->stopPreviewButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    ui->workspaceLayout->setStretch(0, 3);
+    ui->workspaceLayout->setStretch(1, 9);
+    ui->workspaceLayout->setStretch(2, 4);
+    ui->visualWorkspaceLayout->setStretch(0, 1);
+    ui->visualWorkspaceLayout->setStretch(1, 1);
+    ui->infoWorkspaceLayout->setStretch(0, 1);
+    ui->infoWorkspaceLayout->setStretch(1, 1);
+    ui->infoWorkspaceLayout->setStretch(2, 2);
+    ui->currentImageLayout->setStretch(1, 1);
+    ui->resultImageLayout->setStretch(1, 1);
+
     ui->logPlainTextEdit->document()->setMaximumBlockCount(200);
     ui->inputSourceTypeComboBox->addItems(
         QStringList{QStringLiteral("文件"),
@@ -890,13 +972,10 @@ void MainWindow::setupUiState()
     ui->previewIntervalSpinBox->setMinimum(10);
     ui->previewIntervalSpinBox->setMaximum(1000);
     ui->previewIntervalSpinBox->setSuffix(QStringLiteral(" ms"));
-    ui->logCaptureLevelComboBox->addItems(
-        QStringList{QStringLiteral("DEBUG"),
-                    QStringLiteral("INFO"),
-                    QStringLiteral("WARN"),
-                    QStringLiteral("ERROR")});
-    ui->logCaptureLevelComboBox->setToolTip(
-        QStringLiteral("控制运行时实际采集的最低日志级别，会影响文件、控制台和界面日志源。"));
+    ui->continuousDetectionIntervalSpinBox->setMinimum(100);
+    ui->continuousDetectionIntervalSpinBox->setMaximum(5000);
+    ui->continuousDetectionIntervalSpinBox->setSingleStep(100);
+    ui->continuousDetectionIntervalSpinBox->setSuffix(QStringLiteral(" ms"));
     ui->logLevelFilterComboBox->addItems(
         QStringList{QStringLiteral("全部"),
                     QStringLiteral("DEBUG"),
@@ -929,10 +1008,7 @@ void MainWindow::setupUiState()
     ui->defectCountValueLabel->setText(QStringLiteral("--"));
     ui->processTimeValueLabel->setText(QStringLiteral("--"));
     ui->currentImageValueLabel->setText(QStringLiteral("未选择"));
-    ui->selectedRecordDetailValueLabel->setText(QStringLiteral("双击左侧历史记录可查看详情并回看原图。"));
     ui->roiValueLabel->setText(QStringLiteral("未设置"));
-    ui->bottomSplitter->setStretchFactor(0, 3);
-    ui->bottomSplitter->setStretchFactor(1, 2);
     statusBar()->showMessage(tr("系统已启动"), 3000);
     updateRoiSummary();
     updateInputSourceUi();
@@ -943,12 +1019,14 @@ void MainWindow::setupUiState()
 
 void MainWindow::syncCaptureState()
 {
+    // 采集态同步：根据输入模式、预览态、检测态统一计算按钮可用性。
     const InputSourceConfig config = m_controller->inputSourceConfig();
     const CaptureStatusSnapshot &status = m_controller->captureStatus();
     const bool isFileMode = config.type == InputSourceType::FileImage;
     const bool isRunning = m_controller->isDetectionRunning();
     const bool cancelRequested = m_controller->isDetectionCancelRequested();
     const bool previewing = status.state == CaptureState::Previewing;
+    const bool continuousEnabled = m_controller->isContinuousDetectionEnabled();
 
     ui->importImageButton->setEnabled(!isRunning && !cancelRequested && !m_controller->captureStatus().opened);
     ui->browseInputSourceButton->setEnabled(!isRunning && !cancelRequested && !status.opened);
@@ -956,10 +1034,18 @@ void MainWindow::syncCaptureState()
     ui->inputSourcePathLineEdit->setEnabled(!isRunning && !cancelRequested && !status.opened);
     ui->cameraDeviceSpinBox->setEnabled(!isRunning && !cancelRequested && !status.opened);
     ui->previewIntervalSpinBox->setEnabled(!isRunning && !cancelRequested && !status.opened);
+    ui->continuousDetectionIntervalSpinBox->setEnabled(!isRunning && !cancelRequested && !continuousEnabled);
     ui->openInputSourceButton->setEnabled(!isRunning && !status.opened && status.state != CaptureState::Opening);
     ui->closeInputSourceButton->setEnabled(!isRunning && (status.opened || status.state == CaptureState::Error));
     ui->startPreviewButton->setEnabled(!isRunning && status.opened && !previewing);
     ui->stopPreviewButton->setEnabled(!isRunning && previewing);
+    ui->startContinuousDetectionButton->setEnabled(
+        !isRunning
+        && !continuousEnabled
+        && !isFileMode
+        && previewing
+        && m_controller->hasLatestFrame());
+    ui->stopContinuousDetectionButton->setEnabled(continuousEnabled);
 
     if (isFileMode) {
         ui->startDetectionButton->setEnabled(
@@ -978,6 +1064,7 @@ void MainWindow::syncCaptureState()
 
 void MainWindow::syncTcpState()
 {
+    // TCP 状态展示保持轻量：只同步状态文本和连接按钮文案。
     ui->tcpStatusValueLabel->setText(m_controller->tcpStatusText());
     ui->tcpConnectButton->setText(m_controller->isTcpConnected() ? QStringLiteral("断开连接")
                                                                   : QStringLiteral("连接 TCP"));
@@ -985,16 +1072,13 @@ void MainWindow::syncTcpState()
 
 void MainWindow::onLogFilterChanged()
 {
+    // 过滤条件变化后实时重绘日志视图。
     refreshLogView();
-}
-
-void MainWindow::onRuntimeLogLevelChanged(const QString &levelName)
-{
-    m_controller->logManager().setMinimumLevelName(levelName);
 }
 
 void MainWindow::onUiLogGenerated(const LogEvent &event)
 {
+    // 界面日志采用固定容量环形裁剪，避免长时运行导致内存持续增长。
     m_uiLogEvents.append(event);
     while (m_uiLogEvents.size() > kUiLogHistoryLimit) {
         m_uiLogEvents.removeFirst();

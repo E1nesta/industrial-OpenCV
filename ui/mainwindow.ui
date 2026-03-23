@@ -15,22 +15,130 @@
   </property>
   <widget class="QWidget" name="centralwidget">
    <layout class="QVBoxLayout" name="mainLayout">
+    <property name="spacing">
+     <number>10</number>
+    </property>
+    <property name="leftMargin">
+     <number>10</number>
+    </property>
+    <property name="topMargin">
+     <number>10</number>
+    </property>
+    <property name="rightMargin">
+     <number>10</number>
+    </property>
+    <property name="bottomMargin">
+     <number>10</number>
+    </property>
     <item>
-     <layout class="QHBoxLayout" name="topLayout">
-      <item>
-       <widget class="QGroupBox" name="controlGroupBox">
+     <widget class="QGroupBox" name="topAreaGroupBox">
+      <property name="title">
+       <string/>
+      </property>
+      <layout class="QVBoxLayout" name="topAreaOuterLayout">
+       <item>
+        <layout class="QHBoxLayout" name="workspaceLayout">
+         <property name="spacing">
+          <number>10</number>
+         </property>
+         <item>
+          <widget class="QGroupBox" name="controlGroupBox">
         <property name="minimumSize">
          <size>
-          <width>280</width>
+          <width>300</width>
           <height>0</height>
          </size>
         </property>
-        <property name="title">
-         <string>控制面板</string>
+        <property name="maximumSize">
+         <size>
+          <width>340</width>
+          <height>16777215</height>
+         </size>
         </property>
-        <layout class="QVBoxLayout" name="controlLayout">
+        <property name="title">
+         <string>操作区</string>
+        </property>
+           <layout class="QVBoxLayout" name="controlLayout">
          <item>
-          <widget class="QGroupBox" name="inputGroupBox">
+          <widget class="QGroupBox" name="statusGroupBox">
+           <property name="title">
+            <string>运行状态</string>
+           </property>
+           <layout class="QFormLayout" name="statusFormLayout">
+            <item row="0" column="0">
+             <widget class="QLabel" name="stageLabel">
+              <property name="text">
+               <string>阶段</string>
+              </property>
+             </widget>
+            </item>
+            <item row="0" column="1">
+             <widget class="QLabel" name="stageValueLabel">
+              <property name="text">
+               <string>阶段 4 / 帧驱动采集主线（预览 + 单帧检测）</string>
+              </property>
+              <property name="wordWrap">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item row="1" column="0">
+             <widget class="QLabel" name="statusLabel">
+              <property name="text">
+               <string>状态</string>
+              </property>
+             </widget>
+            </item>
+            <item row="1" column="1">
+             <widget class="QLabel" name="statusValueLabel">
+              <property name="text">
+               <string>系统已就绪</string>
+              </property>
+              <property name="wordWrap">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item row="2" column="0">
+             <widget class="QLabel" name="tcpStatusLabel">
+              <property name="text">
+               <string>TCP</string>
+              </property>
+             </widget>
+            </item>
+            <item row="2" column="1">
+             <widget class="QLabel" name="tcpStatusValueLabel">
+              <property name="text">
+               <string>未连接</string>
+              </property>
+              <property name="wordWrap">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
+         <widget class="QGroupBox" name="inputGroupBox">
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+            <horstretch>0</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
+          <property name="minimumSize">
+           <size>
+            <width>0</width>
+            <height>360</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>16777215</width>
+            <height>360</height>
+           </size>
+          </property>
            <property name="title">
             <string>输入源</string>
            </property>
@@ -101,20 +209,39 @@
              </widget>
             </item>
             <item row="7" column="0" colspan="2">
-             <widget class="QPushButton" name="startPreviewButton">
-              <property name="text">
-               <string>开始预览</string>
+             <layout class="QHBoxLayout" name="previewButtonsLayout">
+              <property name="spacing">
+               <number>8</number>
               </property>
-             </widget>
+              <item>
+               <widget class="QPushButton" name="startPreviewButton">
+                <property name="minimumSize">
+                 <size>
+                  <width>0</width>
+                  <height>30</height>
+                 </size>
+                </property>
+                <property name="text">
+                 <string>开始预览</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="stopPreviewButton">
+                <property name="minimumSize">
+                 <size>
+                  <width>0</width>
+                  <height>30</height>
+                 </size>
+                </property>
+                <property name="text">
+                 <string>停止预览</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
             </item>
             <item row="8" column="0" colspan="2">
-             <widget class="QPushButton" name="stopPreviewButton">
-              <property name="text">
-               <string>停止预览</string>
-              </property>
-             </widget>
-            </item>
-            <item row="9" column="0" colspan="2">
              <widget class="QPushButton" name="importImageButton">
               <property name="text">
                <string>选择图片文件</string>
@@ -125,215 +252,52 @@
           </widget>
          </item>
          <item>
-          <widget class="QPushButton" name="startDetectionButton">
-           <property name="text">
-            <string>开始检测</string>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QPushButton" name="stopDetectionButton">
-           <property name="text">
-            <string>停止检测</string>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QPushButton" name="loadParamButton">
-           <property name="text">
-            <string>加载参数</string>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QPushButton" name="saveParamButton">
-           <property name="text">
-            <string>保存参数</string>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QPushButton" name="resetParamButton">
-           <property name="text">
-            <string>重置默认值</string>
-           </property>
-          </widget>
-         </item>
-         <item>
-         <widget class="QGroupBox" name="paramGroupBox">
+          <widget class="QGroupBox" name="actionGroupBox">
            <property name="title">
-            <string>视觉参数</string>
+            <string>检测操作</string>
            </property>
-           <layout class="QFormLayout" name="paramFormLayout">
-            <item row="0" column="0">
-             <widget class="QLabel" name="thresholdLabel">
+           <layout class="QVBoxLayout" name="actionLayout">
+            <item>
+             <widget class="QPushButton" name="startDetectionButton">
               <property name="text">
-               <string>阈值</string>
+               <string>开始检测</string>
               </property>
              </widget>
             </item>
-            <item row="0" column="1">
-             <widget class="QSpinBox" name="thresholdSpinBox">
-              <property name="maximum">
-               <number>255</number>
-              </property>
-              <property name="value">
-               <number>128</number>
-              </property>
-             </widget>
-            </item>
-            <item row="1" column="0">
-             <widget class="QLabel" name="minAreaLabel">
+            <item>
+             <widget class="QPushButton" name="stopDetectionButton">
               <property name="text">
-               <string>最小面积</string>
+               <string>停止检测</string>
               </property>
              </widget>
             </item>
-            <item row="1" column="1">
-             <widget class="QSpinBox" name="minAreaSpinBox">
-              <property name="maximum">
-               <number>100000</number>
-              </property>
-              <property name="value">
-               <number>10</number>
-              </property>
-             </widget>
-            </item>
-            <item row="2" column="0">
-             <widget class="QLabel" name="maxAreaLabel">
+            <item>
+             <widget class="QLabel" name="continuousDetectionIntervalLabel">
               <property name="text">
-               <string>最大面积</string>
+               <string>连续检测间隔</string>
               </property>
              </widget>
             </item>
-            <item row="2" column="1">
-             <widget class="QSpinBox" name="maxAreaSpinBox">
-              <property name="maximum">
-               <number>1000000</number>
-              </property>
-              <property name="value">
-               <number>1000</number>
-              </property>
-             </widget>
+            <item>
+             <widget class="QSpinBox" name="continuousDetectionIntervalSpinBox"/>
             </item>
-            <item row="3" column="0">
-             <widget class="QLabel" name="morphologyLabel">
+            <item>
+             <widget class="QPushButton" name="startContinuousDetectionButton">
               <property name="text">
-               <string>形态学处理</string>
+               <string>开始连续检测</string>
               </property>
              </widget>
             </item>
-            <item row="3" column="1">
-             <widget class="QCheckBox" name="morphologyCheckBox">
+            <item>
+             <widget class="QPushButton" name="stopContinuousDetectionButton">
               <property name="text">
-               <string>启用</string>
+               <string>停止连续检测</string>
               </property>
              </widget>
             </item>
-            <item row="4" column="0">
-             <widget class="QLabel" name="roiXLabel">
-              <property name="text">
-               <string>ROI X</string>
-              </property>
-             </widget>
-            </item>
-            <item row="4" column="1">
-             <widget class="QSpinBox" name="roiXSpinBox">
-              <property name="maximum">
-               <number>100000</number>
-              </property>
-             </widget>
-            </item>
-            <item row="5" column="0">
-             <widget class="QLabel" name="roiYLabel">
-              <property name="text">
-               <string>ROI Y</string>
-              </property>
-             </widget>
-            </item>
-            <item row="5" column="1">
-             <widget class="QSpinBox" name="roiYSpinBox">
-              <property name="maximum">
-               <number>100000</number>
-              </property>
-             </widget>
-            </item>
-            <item row="6" column="0">
-             <widget class="QLabel" name="roiWidthLabel">
-              <property name="text">
-               <string>ROI 宽度</string>
-              </property>
-             </widget>
-            </item>
-            <item row="6" column="1">
-             <widget class="QSpinBox" name="roiWidthSpinBox">
-              <property name="maximum">
-               <number>100000</number>
-              </property>
-             </widget>
-            </item>
-            <item row="7" column="0">
-             <widget class="QLabel" name="roiHeightLabel">
-              <property name="text">
-               <string>ROI 高度</string>
-              </property>
-             </widget>
-            </item>
-            <item row="7" column="1">
-             <widget class="QSpinBox" name="roiHeightSpinBox">
-              <property name="maximum">
-               <number>100000</number>
-              </property>
-             </widget>
-            </item>
-            <item row="8" column="0">
-             <widget class="QLabel" name="roiLabel">
-              <property name="text">
-               <string>ROI 摘要</string>
-              </property>
-             </widget>
-            </item>
-            <item row="8" column="1">
-             <widget class="QLabel" name="roiValueLabel">
-              <property name="text">
-               <string>未设置</string>
-              </property>
-              <property name="wordWrap">
-               <bool>true</bool>
-              </property>
-             </widget>
-            </item>
-            <item row="9" column="0" colspan="2">
-             <widget class="QPushButton" name="clearRoiButton">
-              <property name="text">
-               <string>清空 ROI</string>
-              </property>
-             </widget>
-            </item>
-            <item row="10" column="0">
-             <widget class="QLabel" name="imageSavePathLabel">
-              <property name="text">
-               <string>图片保存路径</string>
-              </property>
-             </widget>
-            </item>
-            <item row="10" column="1">
-             <widget class="QLineEdit" name="imageSavePathLineEdit">
-              <property name="placeholderText">
-               <string>data/images</string>
-              </property>
-             </widget>
-            </item>
-            <item row="11" column="0" colspan="2">
-             <widget class="QPushButton" name="browseImageSavePathButton">
-              <property name="text">
-               <string>选择图片保存目录</string>
-              </property>
-             </widget>
-            </item>
-          </layout>
-         </widget>
-        </item>
+           </layout>
+          </widget>
+         </item>
          <item>
           <widget class="QGroupBox" name="tcpGroupBox">
            <property name="title">
@@ -371,27 +335,40 @@
               </property>
              </widget>
             </item>
-            <item row="2" column="0">
-             <widget class="QLabel" name="tcpStatusLabel">
-              <property name="text">
-               <string>状态</string>
-              </property>
-             </widget>
-            </item>
-            <item row="2" column="1">
-             <widget class="QLabel" name="tcpStatusValueLabel">
-              <property name="text">
-               <string>未连接</string>
-              </property>
-              <property name="wordWrap">
-               <bool>true</bool>
-              </property>
-             </widget>
-            </item>
-            <item row="3" column="0" colspan="2">
+            <item row="2" column="0" colspan="2">
              <widget class="QPushButton" name="tcpConnectButton">
               <property name="text">
                <string>连接 TCP</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
+          <widget class="QGroupBox" name="configGroupBox">
+           <property name="title">
+            <string>配置操作</string>
+           </property>
+           <layout class="QVBoxLayout" name="configLayout">
+            <item>
+             <widget class="QPushButton" name="loadParamButton">
+              <property name="text">
+               <string>加载参数</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="saveParamButton">
+              <property name="text">
+               <string>保存参数</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="resetParamButton">
+              <property name="text">
+               <string>重置默认值</string>
               </property>
              </widget>
             </item>
@@ -412,301 +389,439 @@
           </spacer>
          </item>
         </layout>
-       </widget>
-      </item>
-      <item>
-       <widget class="QGroupBox" name="imageGroupBox">
-        <property name="title">
-         <string>图像预览</string>
-        </property>
-        <layout class="QHBoxLayout" name="imageLayout">
-         <item>
-          <layout class="QVBoxLayout" name="sourceLayout">
-           <item>
-            <widget class="QLabel" name="sourceTitleLabel">
-             <property name="text">
-              <string>原始图像</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QWidget" name="sourceImageHost"/>
-           </item>
-          </layout>
+          </widget>
          </item>
          <item>
-          <layout class="QVBoxLayout" name="resultLayout">
-           <item>
-            <widget class="QLabel" name="resultTitleLabel">
-             <property name="text">
-              <string>结果图像</string>
+          <widget class="QGroupBox" name="imageWorkspaceGroupBox">
+           <property name="title">
+             <string>图片区</string>
+           </property>
+           <layout class="QVBoxLayout" name="visualWorkspaceLayout">
+            <property name="spacing">
+             <number>10</number>
+            </property>
+            <item>
+             <widget class="QGroupBox" name="currentImageGroupBox">
+             <property name="title">
+              <string>预览区</string>
              </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QWidget" name="resultImageHost"/>
-           </item>
-          </layout>
+             <layout class="QVBoxLayout" name="currentImageLayout">
+              <property name="spacing">
+               <number>4</number>
+              </property>
+              <item>
+               <widget class="QWidget" name="sourceImageHost" native="true"/>
+              </item>
+             </layout>
+             </widget>
+            </item>
+            <item>
+             <widget class="QGroupBox" name="resultImageGroupBox">
+              <property name="title">
+               <string>结果区</string>
+              </property>
+              <layout class="QVBoxLayout" name="resultImageLayout">
+               <property name="spacing">
+                <number>4</number>
+               </property>
+               <item>
+                <widget class="QWidget" name="resultImageHost" native="true"/>
+               </item>
+              </layout>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
+          <widget class="QGroupBox" name="infoWorkspaceGroupBox">
+           <property name="minimumSize">
+            <size>
+             <width>300</width>
+             <height>0</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>340</width>
+             <height>16777215</height>
+            </size>
+           </property>
+           <property name="title">
+            <string>信息区</string>
+           </property>
+           <layout class="QVBoxLayout" name="infoWorkspaceLayout">
+            <property name="spacing">
+             <number>10</number>
+            </property>
+            <item>
+            <widget class="QGroupBox" name="paramGroupBox">
+             <property name="minimumSize">
+              <size>
+               <width>0</width>
+               <height>0</height>
+              </size>
+             </property>
+             <property name="maximumSize">
+              <size>
+               <width>16777215</width>
+               <height>16777215</height>
+              </size>
+             </property>
+             <property name="title">
+              <string>视觉参数</string>
+             </property>
+              <layout class="QFormLayout" name="paramFormLayout">
+              <item row="0" column="0">
+               <widget class="QLabel" name="thresholdLabel">
+                <property name="text">
+                 <string>阈值</string>
+                </property>
+               </widget>
+              </item>
+              <item row="0" column="1">
+               <widget class="QSpinBox" name="thresholdSpinBox">
+                <property name="maximum">
+                 <number>255</number>
+                </property>
+                <property name="value">
+                 <number>128</number>
+                </property>
+               </widget>
+              </item>
+              <item row="1" column="0">
+               <widget class="QLabel" name="minAreaLabel">
+                <property name="text">
+                 <string>最小面积</string>
+                </property>
+               </widget>
+              </item>
+              <item row="1" column="1">
+               <widget class="QSpinBox" name="minAreaSpinBox">
+                <property name="maximum">
+                 <number>100000</number>
+                </property>
+                <property name="value">
+                 <number>10</number>
+                </property>
+               </widget>
+              </item>
+              <item row="2" column="0">
+               <widget class="QLabel" name="maxAreaLabel">
+                <property name="text">
+                 <string>最大面积</string>
+                </property>
+               </widget>
+              </item>
+              <item row="2" column="1">
+               <widget class="QSpinBox" name="maxAreaSpinBox">
+                <property name="maximum">
+                 <number>1000000</number>
+                </property>
+                <property name="value">
+                 <number>1000</number>
+                </property>
+               </widget>
+              </item>
+              <item row="3" column="0">
+               <widget class="QLabel" name="morphologyLabel">
+                <property name="text">
+                 <string>形态学处理</string>
+                </property>
+               </widget>
+              </item>
+              <item row="3" column="1">
+               <widget class="QCheckBox" name="morphologyCheckBox">
+                <property name="text">
+                 <string>启用</string>
+                </property>
+               </widget>
+              </item>
+              <item row="4" column="0">
+               <widget class="QLabel" name="roiXLabel">
+                <property name="text">
+                 <string>ROI X</string>
+                </property>
+               </widget>
+              </item>
+              <item row="4" column="1">
+               <widget class="QSpinBox" name="roiXSpinBox">
+                <property name="maximum">
+                 <number>100000</number>
+                </property>
+               </widget>
+              </item>
+              <item row="5" column="0">
+               <widget class="QLabel" name="roiYLabel">
+                <property name="text">
+                 <string>ROI Y</string>
+                </property>
+               </widget>
+              </item>
+              <item row="5" column="1">
+               <widget class="QSpinBox" name="roiYSpinBox">
+                <property name="maximum">
+                 <number>100000</number>
+                </property>
+               </widget>
+              </item>
+              <item row="6" column="0">
+               <widget class="QLabel" name="roiWidthLabel">
+                <property name="text">
+                 <string>ROI 宽度</string>
+                </property>
+               </widget>
+              </item>
+              <item row="6" column="1">
+               <widget class="QSpinBox" name="roiWidthSpinBox">
+                <property name="maximum">
+                 <number>100000</number>
+                </property>
+               </widget>
+              </item>
+              <item row="7" column="0">
+               <widget class="QLabel" name="roiHeightLabel">
+                <property name="text">
+                 <string>ROI 高度</string>
+                </property>
+               </widget>
+              </item>
+              <item row="7" column="1">
+               <widget class="QSpinBox" name="roiHeightSpinBox">
+                <property name="maximum">
+                 <number>100000</number>
+                </property>
+               </widget>
+              </item>
+              <item row="8" column="0">
+               <widget class="QLabel" name="roiLabel">
+                <property name="text">
+                 <string>ROI 摘要</string>
+                </property>
+               </widget>
+              </item>
+              <item row="8" column="1">
+               <widget class="QLabel" name="roiValueLabel">
+                <property name="text">
+                 <string>未设置</string>
+                </property>
+                <property name="wordWrap">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+              <item row="9" column="0" colspan="2">
+               <widget class="QPushButton" name="clearRoiButton">
+                <property name="text">
+                 <string>清空 ROI</string>
+                </property>
+               </widget>
+              </item>
+              <item row="10" column="0">
+               <widget class="QLabel" name="imageSavePathLabel">
+                <property name="text">
+                 <string>图片保存路径</string>
+                </property>
+               </widget>
+              </item>
+              <item row="10" column="1">
+               <widget class="QLineEdit" name="imageSavePathLineEdit">
+                <property name="placeholderText">
+                 <string>data/images</string>
+                </property>
+               </widget>
+              </item>
+              <item row="11" column="0" colspan="2">
+               <widget class="QPushButton" name="browseImageSavePathButton">
+                <property name="text">
+                 <string>选择图片保存目录</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+             </widget>
+            </item>
+            <item>
+             <widget class="QGroupBox" name="summaryGroupBox">
+             <property name="minimumSize">
+              <size>
+               <width>0</width>
+               <height>0</height>
+              </size>
+             </property>
+             <property name="maximumSize">
+              <size>
+               <width>16777215</width>
+               <height>16777215</height>
+              </size>
+             </property>
+             <property name="title">
+              <string>检测摘要</string>
+             </property>
+              <layout class="QFormLayout" name="summaryFormLayout">
+              <item row="0" column="0">
+               <widget class="QLabel" name="currentImageLabel">
+                <property name="text">
+                 <string>当前对象</string>
+                </property>
+               </widget>
+              </item>
+              <item row="0" column="1">
+               <widget class="QLabel" name="currentImageValueLabel">
+                <property name="text">
+                 <string>未选择</string>
+                </property>
+                <property name="wordWrap">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+              <item row="1" column="0">
+               <widget class="QLabel" name="resultStateLabel">
+                <property name="text">
+                 <string>检测结果</string>
+                </property>
+               </widget>
+              </item>
+              <item row="1" column="1">
+               <widget class="QLabel" name="resultStateValueLabel">
+                <property name="text">
+                 <string>--</string>
+                </property>
+               </widget>
+              </item>
+              <item row="2" column="0">
+               <widget class="QLabel" name="defectCountLabel">
+                <property name="text">
+                 <string>缺陷数量</string>
+                </property>
+               </widget>
+              </item>
+              <item row="2" column="1">
+               <widget class="QLabel" name="defectCountValueLabel">
+                <property name="text">
+                 <string>--</string>
+                </property>
+               </widget>
+              </item>
+              <item row="3" column="0">
+               <widget class="QLabel" name="processTimeLabel">
+                <property name="text">
+                 <string>处理耗时</string>
+                </property>
+               </widget>
+              </item>
+              <item row="3" column="1">
+               <widget class="QLabel" name="processTimeValueLabel">
+                <property name="text">
+                 <string>--</string>
+                </property>
+               </widget>
+              </item>
+              <item row="4" column="0">
+               <widget class="QLabel" name="configPathLabel">
+                <property name="text">
+                 <string>配置路径</string>
+                </property>
+               </widget>
+              </item>
+              <item row="4" column="1">
+               <widget class="QLabel" name="configPathValueLabel">
+                <property name="text">
+                 <string>config/settings.ini</string>
+                </property>
+                <property name="wordWrap">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+             </layout>
+             </widget>
+            </item>
+            <item>
+             <widget class="QTabWidget" name="bottomTabWidget">
+              <property name="currentIndex">
+               <number>0</number>
+              </property>
+              <widget class="QWidget" name="logTab">
+               <attribute name="title">
+                <string>运行日志</string>
+               </attribute>
+               <layout class="QVBoxLayout" name="logTabLayout">
+                <item>
+                 <layout class="QHBoxLayout" name="logFilterLayout">
+                  <item>
+                   <widget class="QLabel" name="logLevelFilterLabel">
+                    <property name="text">
+                     <string>级别</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QComboBox" name="logLevelFilterComboBox"/>
+                  </item>
+                  <item>
+                   <widget class="QLabel" name="logModuleFilterLabel">
+                    <property name="text">
+                     <string>模块</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QComboBox" name="logModuleFilterComboBox"/>
+                  </item>
+                  <item>
+                   <widget class="QPushButton" name="clearLogButton">
+                    <property name="text">
+                     <string>清空显示</string>
+                    </property>
+                   </widget>
+                  </item>
+                 </layout>
+                </item>
+                <item>
+                 <widget class="QPlainTextEdit" name="logPlainTextEdit">
+                  <property name="readOnly">
+                   <bool>true</bool>
+                  </property>
+                 </widget>
+                </item>
+               </layout>
+              </widget>
+              <widget class="QWidget" name="recentRecordsTab">
+               <attribute name="title">
+                <string>最近记录</string>
+               </attribute>
+               <layout class="QVBoxLayout" name="recentRecordsTabLayout">
+                <item>
+                 <widget class="QGroupBox" name="recentRecordsGroupBox">
+                  <property name="title">
+                   <string/>
+                  </property>
+                  <layout class="QVBoxLayout" name="recentRecordsLayout">
+                   <item>
+                    <widget class="QPushButton" name="exportRecordsButton">
+                     <property name="text">
+                      <string>导出最近记录 CSV</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item>
+                    <widget class="QTableWidget" name="recentRecordsTableWidget"/>
+                   </item>
+                  </layout>
+                 </widget>
+                </item>
+               </layout>
+              </widget>
+             </widget>
+            </item>
+           </layout>
+          </widget>
          </item>
         </layout>
-       </widget>
-      </item>
-      <item>
-       <widget class="QGroupBox" name="overviewGroupBox">
-        <property name="minimumSize">
-         <size>
-          <width>320</width>
-          <height>0</height>
-         </size>
-        </property>
-        <property name="title">
-         <string>运行概览</string>
-        </property>
-        <layout class="QFormLayout" name="overviewFormLayout">
-         <item row="0" column="0">
-          <widget class="QLabel" name="stageLabel">
-           <property name="text">
-            <string>阶段</string>
-           </property>
-          </widget>
-         </item>
-         <item row="0" column="1">
-          <widget class="QLabel" name="stageValueLabel">
-           <property name="text">
-            <string>阶段 2 / 异步单图检测闭环（支持取消）</string>
-           </property>
-          </widget>
-         </item>
-         <item row="1" column="0">
-          <widget class="QLabel" name="statusLabel">
-           <property name="text">
-            <string>状态</string>
-           </property>
-          </widget>
-         </item>
-         <item row="1" column="1">
-          <widget class="QLabel" name="statusValueLabel">
-           <property name="text">
-            <string>工程骨架已就绪</string>
-           </property>
-           <property name="wordWrap">
-            <bool>true</bool>
-           </property>
-          </widget>
-         </item>
-         <item row="2" column="0">
-          <widget class="QLabel" name="currentImageLabel">
-           <property name="text">
-            <string>当前图片</string>
-           </property>
-          </widget>
-         </item>
-         <item row="2" column="1">
-          <widget class="QLabel" name="currentImageValueLabel">
-           <property name="text">
-            <string>未选择</string>
-           </property>
-           <property name="wordWrap">
-            <bool>true</bool>
-           </property>
-          </widget>
-         </item>
-         <item row="3" column="0">
-          <widget class="QLabel" name="resultStateLabel">
-           <property name="text">
-            <string>检测结果</string>
-           </property>
-          </widget>
-         </item>
-         <item row="3" column="1">
-          <widget class="QLabel" name="resultStateValueLabel">
-           <property name="text">
-            <string>--</string>
-           </property>
-          </widget>
-         </item>
-         <item row="4" column="0">
-          <widget class="QLabel" name="defectCountLabel">
-           <property name="text">
-            <string>缺陷数量</string>
-           </property>
-          </widget>
-         </item>
-         <item row="4" column="1">
-          <widget class="QLabel" name="defectCountValueLabel">
-           <property name="text">
-            <string>--</string>
-           </property>
-          </widget>
-         </item>
-         <item row="5" column="0">
-          <widget class="QLabel" name="processTimeLabel">
-           <property name="text">
-            <string>处理耗时</string>
-           </property>
-          </widget>
-         </item>
-         <item row="5" column="1">
-          <widget class="QLabel" name="processTimeValueLabel">
-           <property name="text">
-            <string>--</string>
-           </property>
-          </widget>
-         </item>
-         <item row="6" column="0">
-          <widget class="QLabel" name="configPathLabel">
-           <property name="text">
-            <string>配置路径</string>
-           </property>
-          </widget>
-         </item>
-         <item row="6" column="1">
-          <widget class="QLabel" name="configPathValueLabel">
-           <property name="text">
-            <string>config/settings.ini</string>
-           </property>
-           <property name="wordWrap">
-            <bool>true</bool>
-           </property>
-          </widget>
-         </item>
-        </layout>
-       </widget>
-      </item>
-     </layout>
-    </item>
-    <item>
-     <widget class="QSplitter" name="bottomSplitter">
-      <property name="orientation">
-       <enum>Qt::Horizontal</enum>
-      </property>
-      <widget class="QGroupBox" name="recentRecordsGroupBox">
-       <property name="title">
-        <string>最近记录</string>
-       </property>
-       <layout class="QVBoxLayout" name="recentRecordsLayout">
-        <item>
-         <widget class="QLabel" name="recentRecordsHintLabel">
-          <property name="text">
-           <string>双击一条记录可回看对应原图，并把该次检测摘要恢复到右侧概览。</string>
-          </property>
-          <property name="wordWrap">
-           <bool>true</bool>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QPushButton" name="exportRecordsButton">
-          <property name="text">
-           <string>导出最近记录 CSV</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QTableWidget" name="recentRecordsTableWidget"/>
-        </item>
-       </layout>
-      </widget>
-      <widget class="QWidget" name="recordLogPanel">
-       <layout class="QVBoxLayout" name="recordLogLayout">
-        <item>
-         <widget class="QGroupBox" name="recordDetailGroupBox">
-          <property name="title">
-           <string>记录详情</string>
-          </property>
-          <layout class="QVBoxLayout" name="recordDetailLayout">
-           <item>
-            <widget class="QLabel" name="selectedRecordDetailValueLabel">
-             <property name="text">
-              <string>双击左侧历史记录可查看详情并回看原图。</string>
-             </property>
-             <property name="wordWrap">
-              <bool>true</bool>
-             </property>
-             <property name="alignment">
-              <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignTop</set>
-             </property>
-            </widget>
-           </item>
-          </layout>
-         </widget>
-        </item>
-        <item>
-         <widget class="QGroupBox" name="logGroupBox">
-          <property name="title">
-           <string>运行日志</string>
-          </property>
-          <layout class="QVBoxLayout" name="logLayout">
-           <item>
-            <layout class="QHBoxLayout" name="logCaptureLevelLayout">
-             <item>
-              <widget class="QLabel" name="logCaptureLevelLabel">
-               <property name="text">
-                <string>采集级别</string>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QComboBox" name="logCaptureLevelComboBox"/>
-             </item>
-             <item>
-              <spacer name="logCaptureLevelSpacer">
-               <property name="orientation">
-                <enum>Qt::Horizontal</enum>
-               </property>
-               <property name="sizeHint" stdset="0">
-                <size>
-                 <width>40</width>
-                 <height>20</height>
-                </size>
-               </property>
-              </spacer>
-             </item>
-            </layout>
-           </item>
-           <item>
-            <layout class="QHBoxLayout" name="logFilterLayout">
-             <item>
-              <widget class="QLabel" name="logLevelFilterLabel">
-               <property name="text">
-                <string>级别</string>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QComboBox" name="logLevelFilterComboBox"/>
-             </item>
-             <item>
-              <widget class="QLabel" name="logModuleFilterLabel">
-               <property name="text">
-                <string>模块</string>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QComboBox" name="logModuleFilterComboBox"/>
-             </item>
-             <item>
-              <widget class="QPushButton" name="clearLogButton">
-               <property name="text">
-                <string>清空显示</string>
-               </property>
-              </widget>
-             </item>
-            </layout>
-           </item>
-           <item>
-            <widget class="QPlainTextEdit" name="logPlainTextEdit">
-             <property name="readOnly">
-              <bool>true</bool>
-             </property>
-            </widget>
-           </item>
-          </layout>
-         </widget>
-        </item>
-       </layout>
-      </widget>
+       </item>
+      </layout>
      </widget>
     </item>
    </layout>

@@ -416,6 +416,38 @@ if(QT_VERSION_MAJOR EQUAL 6)
     qt_finalize_executable(VisionInspectionSystem)
 endif()
 
+add_executable(VisionOpenCvDiagnostics
+    tools/opencv_diagnostics.cpp
+)
+
+target_include_directories(VisionOpenCvDiagnostics
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${OpenCV_INCLUDE_DIRS}
+)
+
+target_link_libraries(VisionOpenCvDiagnostics
+    PRIVATE
+        ${OpenCV_LIBS}
+)
+
+if(_vision_opencv_runtime_dlls OR _vision_opencv_videoio_plugins OR _vision_opencv_videoio_runtime_deps)
+    foreach(_vision_runtime_artifact IN LISTS
+            _vision_opencv_runtime_dlls
+            _vision_opencv_videoio_plugins
+            _vision_opencv_videoio_runtime_deps)
+        if(EXISTS "${_vision_runtime_artifact}")
+            add_custom_command(
+                TARGET VisionOpenCvDiagnostics POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${_vision_runtime_artifact}"
+                    "$<TARGET_FILE_DIR:VisionOpenCvDiagnostics>"
+                VERBATIM
+            )
+        endif()
+    endforeach()
+endif()
+
 include(CTest)
 
 if(BUILD_TESTING)
@@ -489,11 +521,36 @@ if(BUILD_TESTING)
                 ${OpenCV_LIBS}
         )
 
+        add_executable(VisionConfigManagerTests
+            tests/configmanager_tests.cpp
+            common/constants.h
+            models/deviceconfig.h
+            models/inputsource.h
+            models/visionparam.h
+            storage/configmanager.h
+            storage/configmanager.cpp
+        )
+
+        target_include_directories(VisionConfigManagerTests
+            PRIVATE
+                ${CMAKE_CURRENT_SOURCE_DIR}
+                ${OpenCV_INCLUDE_DIRS}
+        )
+
+        target_link_libraries(VisionConfigManagerTests
+            PRIVATE
+                Qt${QT_VERSION_MAJOR}::Core
+                Qt${QT_VERSION_MAJOR}::Test
+                ${OpenCV_LIBS}
+        )
+
         add_test(NAME VisionImageProcessorTests COMMAND VisionImageProcessorTests)
         add_test(NAME VisionUtilsTests COMMAND VisionUtilsTests)
+        add_test(NAME VisionConfigManagerTests COMMAND VisionConfigManagerTests)
         set_tests_properties(
             VisionImageProcessorTests
             VisionUtilsTests
+            VisionConfigManagerTests
             PROPERTIES
                 ENVIRONMENT "PATH=${_vision_test_path};$ENV{PATH}"
         )

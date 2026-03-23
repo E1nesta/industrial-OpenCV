@@ -1,5 +1,6 @@
 #include "app/appcontroller.h"
 
+#include <algorithm>
 #include <QDateTime>
 #include <QFileInfo>
 #include <QMetaType>
@@ -16,6 +17,8 @@ namespace
 {
 constexpr int kPreviewRenderIntervalMs = 125;
 constexpr int kPreviewMaxLongEdge = 960;
+constexpr int kDefaultContinuousDetectionIntervalMs = 1000;
+constexpr int kMinimumContinuousDetectionIntervalMs = 100;
 
 QString describeInputSource(const InputSourceConfig &config)
 {
@@ -69,6 +72,14 @@ AppController::AppController(QObject *parent)
     m_previewRenderTimer = new QTimer(this);
     m_previewRenderTimer->setInterval(kPreviewRenderIntervalMs);
     connect(m_previewRenderTimer, &QTimer::timeout, this, &AppController::renderLatestPreviewFrame);
+
+    m_continuousDetectionTimer = new QTimer(this);
+    m_continuousDetectionTimer->setInterval(kDefaultContinuousDetectionIntervalMs);
+    connect(
+        m_continuousDetectionTimer,
+        &QTimer::timeout,
+        this,
+        &AppController::triggerContinuousDetectionTick);
 
     m_captureWorker->moveToThread(&m_captureThread);
     connect(&m_captureThread, &QThread::finished, m_captureWorker, &QObject::deleteLater);
@@ -150,15 +161,18 @@ const LogManager &AppController::logManager() const noexcept
 
 void AppController::initialize()
 {
+    // 初始化主流程：加载配置 -> 同步 worker -> 初始化记录库 -> 广播初始状态到 UI。
     m_visionParam = m_configManager.loadVisionParam();
     m_deviceConfig = m_configManager.loadDeviceConfig();
     m_inputSourceConfig = m_configManager.loadInputSourceConfig();
     m_captureStatus.source = m_inputSourceConfig;
+    setContinuousDetectionIntervalMs(m_continuousDetectionIntervalMs);
     m_logManager.setMinimumLevelName(m_configManager.loadLogLevel());
     m_configManager.saveVisionParam(m_visionParam);
     m_configManager.saveDeviceConfig(m_deviceConfig);
     m_configManager.saveInputSourceConfig(m_inputSourceConfig);
     m_configManager.saveLogLevel(m_logManager.minimumLevelName());
+    // 初始化后先把通信配置同步给 TCP worker。
     emit tcpConfigRequested(m_deviceConfig, false);
 
     QString databaseError;
@@ -175,6 +189,7 @@ void AppController::initialize()
 
     m_logManager.info(QStringLiteral("应用"), QStringLiteral("系统初始化完成。"));
     updateStatus(QStringLiteral("系统已启动，配置文件：%1").arg(configFilePath()));
+    // 启动完成后广播一次全量状态，驱动 UI 首次同步。
     emit visionParamChanged();
     emit deviceConfigChanged();
     emit inputSourceConfigChanged();
@@ -185,6 +200,7 @@ void AppController::initialize()
 
 void AppController::reloadConfig()
 {
+    // 运行态重载入口：从磁盘重读配置并同步到各 worker/界面。
     m_visionParam = m_configManager.loadVisionParam();
     m_deviceConfig = m_configManager.loadDeviceConfig();
     m_inputSourceConfig = m_configManager.loadInputSourceConfig();
@@ -202,6 +218,7 @@ void AppController::reloadConfig()
 
 void AppController::saveCurrentParam()
 {
+    // 配置保存出口：把当前内存参数一次性落盘，避免不同配置项保存时序不一致。
     m_configManager.saveVisionParam(m_visionParam);
     m_configManager.saveDeviceConfig(m_deviceConfig);
     m_configManager.saveInputSourceConfig(m_inputSourceConfig);
@@ -212,6 +229,8 @@ void AppController::saveCurrentParam()
 
 void AppController::resetToDefaults()
 {
+    // 重置入口：先收敛运行态，再恢复默认配置并广播全量状态。
+    stopContinuousDetection();
     if (m_captureStatus.opened || m_captureStatus.state == CaptureState::Previewing
         || m_captureStatus.state == CaptureState::Opening) {
         emit captureCloseRequested();
@@ -228,6 +247,7 @@ void AppController::resetToDefaults()
     m_captureStatus.lastFrameIndex = -1;
     m_latestFrame = CapturedFrame{};
     m_logManager.setMinimumLevelName(QStringLiteral("INFO"));
+    // 默认通信配置生效时要求 TCP worker 先断连再应用。
     emit tcpConfigRequested(m_deviceConfig, true);
     m_configManager.saveVisionParam(m_visionParam);
     m_configManager.saveDeviceConfig(m_deviceConfig);
@@ -250,6 +270,7 @@ void AppController::setVisionParam(const VisionParam &param)
 void AppController::setDeviceConfig(const DeviceConfig &config)
 {
     m_deviceConfig = config;
+    // 设备配置变化后立即同步到 TCP worker，保持运行态一致。
     emit tcpConfigRequested(m_deviceConfig, false);
     emit deviceConfigChanged();
 }
@@ -271,6 +292,7 @@ void AppController::setInputSourceConfig(const InputSourceConfig &config)
 
 bool AppController::startDetection(const QString &imagePath)
 {
+    // 图片检测入口：校验请求 -> 构建统一请求 -> 切换检测态 -> 分发到检测 worker。
     if (m_isDetectionRunning) {
         m_logManager.warn(QStringLiteral("检测"), QStringLiteral("检测任务仍在执行中。"));
         updateStatus(
@@ -304,6 +326,7 @@ bool AppController::startDetection(const QString &imagePath)
         QStringLiteral("检测"),
         QStringLiteral("检测任务已提交：id=%1 source=%2").arg(m_activeInspectionId, imagePath));
     updateStatus(QStringLiteral("检测任务已提交，编号：%1").arg(m_activeInspectionId));
+    // 先广播“检测中”状态给 UI，再把请求分发到检测 worker。
     emit detectionStarted();
     emit detectionRunningChanged(true);
     emit detectionRequested(request);
@@ -312,6 +335,7 @@ bool AppController::startDetection(const QString &imagePath)
 
 bool AppController::openInputSource()
 {
+    // 输入源打开入口：只负责状态切换与请求分发，实际打开动作在采集 worker 执行。
     if (m_inputSourceConfig.type == InputSourceType::FileImage) {
         m_logManager.warn(QStringLiteral("采集"), QStringLiteral("静态图片输入无需打开采集线程。"));
         updateStatus(QStringLiteral("静态图片模式无需打开输入源。"));
@@ -346,12 +370,15 @@ bool AppController::openInputSource()
         QStringLiteral("采集"),
         QStringLiteral("已提交输入源打开请求：%1").arg(describeInputSource(m_inputSourceConfig)));
     updateStatus(m_captureStatus.statusText);
+    // 输入源打开由采集 worker 异步执行，控制器只负责广播请求。
     emit captureOpenRequested(m_inputSourceConfig);
     return true;
 }
 
 void AppController::closeInputSource()
 {
+    // 输入源关闭入口：先复位预览上下文，再把关闭请求分发到采集 worker。
+    stopContinuousDetection();
     m_captureStatus.state = CaptureState::Closing;
     m_captureStatus.lastFrameIndex = -1;
     m_captureStatus.statusText = QStringLiteral("正在关闭输入源。");
@@ -370,6 +397,7 @@ void AppController::closeInputSource()
 
 bool AppController::startPreview()
 {
+    // 预览启动入口：切换到预览态并提交异步预览请求。
     if (!m_captureStatus.opened) {
         m_logManager.warn(QStringLiteral("采集"), QStringLiteral("输入源未打开，无法启动预览。"));
         updateStatus(QStringLiteral("启动预览失败：请先打开输入源。"));
@@ -394,12 +422,15 @@ bool AppController::startPreview()
         QStringLiteral("已提交预览启动请求：%1").arg(describeInputSource(m_captureStatus.source)),
         false);
     updateStatus(m_captureStatus.statusText);
+    // 预览真正开始与否由采集 worker 后续回调 captureStatusUpdated 决定。
     emit captureStartPreviewRequested();
     return true;
 }
 
 void AppController::stopPreview()
 {
+    // 预览停止入口：停止预览节拍并保持输入源连接态不变。
+    stopContinuousDetection();
     m_captureStatus.state = CaptureState::Idle;
     m_captureStatus.statusText =
         m_captureStatus.opened ? QStringLiteral("正在停止预览。") : QStringLiteral("输入源未打开。");
@@ -422,16 +453,17 @@ void AppController::stopPreview()
 
 bool AppController::detectCurrentFrame()
 {
+    // 当前帧检测入口：状态门控通过后复用统一检测链路。
+    // 当前帧检测只在“预览中 + 有有效最新帧 + 无在途检测任务”时允许触发。
     if (m_isDetectionRunning) {
         m_logManager.warn(QStringLiteral("检测"), QStringLiteral("检测任务仍在执行中。"));
         updateStatus(QStringLiteral("检测进行中，请等待当前任务完成。"));
         return false;
     }
 
-    if (m_captureStatus.state == CaptureState::Opening || m_captureStatus.state == CaptureState::Closing
-        || m_captureStatus.state == CaptureState::Error) {
+    if (m_captureStatus.state != CaptureState::Previewing) {
         m_logManager.warn(QStringLiteral("检测"), QStringLiteral("当前采集状态不允许启动帧检测。"));
-        updateStatus(QStringLiteral("检测失败：当前采集状态不可用，请重新打开并启动预览。"));
+        updateStatus(QStringLiteral("检测失败：请先启动预览并保持输入源处于预览状态。"));
         return false;
     }
 
@@ -463,10 +495,69 @@ bool AppController::detectCurrentFrame()
             .arg(request.frame.meta.sourceName)
             .arg(request.frame.meta.frameIndex));
     updateStatus(QStringLiteral("检测任务已提交，编号：%1").arg(m_activeInspectionId));
+    // 当前帧检测和图片检测共用同一套检测信号链。
     emit detectionStarted();
     emit detectionRunningChanged(true);
     emit detectionRequested(request);
     return true;
+}
+
+bool AppController::startContinuousDetection()
+{
+    // 连续检测入口：开启节拍器后由 tick 回调决定每轮是否真正提交检测。
+    // 具体是否真正执行检测由 triggerContinuousDetectionTick 的门控逻辑决定。
+    if (m_inputSourceConfig.type == InputSourceType::FileImage) {
+        m_logManager.warn(QStringLiteral("检测"), QStringLiteral("静态图片模式不支持连续检测。"));
+        updateStatus(QStringLiteral("连续检测仅支持视频文件或摄像头预览。"));
+        return false;
+    }
+
+    if (m_captureStatus.state != CaptureState::Previewing) {
+        m_logManager.warn(QStringLiteral("检测"), QStringLiteral("当前采集状态不允许开启连续检测。"));
+        updateStatus(QStringLiteral("开启连续检测失败：请先启动预览。"));
+        return false;
+    }
+
+    if (!hasLatestFrame()) {
+        m_logManager.warn(QStringLiteral("检测"), QStringLiteral("当前没有可用于连续检测的采集帧。"));
+        updateStatus(QStringLiteral("开启连续检测失败：当前没有可用帧，请稍候再试。"));
+        return false;
+    }
+
+    if (m_isContinuousDetectionEnabled) {
+        updateStatus(QStringLiteral("连续检测已在运行。"));
+        return true;
+    }
+
+    m_isContinuousDetectionEnabled = true;
+    m_lastContinuousDetectionFrameIndex = -1;
+    m_continuousDetectionTimer->start();
+    m_logManager.info(
+        QStringLiteral("检测"),
+        QStringLiteral("连续检测已启动：interval=%1ms source=%2")
+            .arg(m_continuousDetectionIntervalMs)
+            .arg(describeInputSource(m_captureStatus.source)));
+    updateStatus(QStringLiteral("连续检测已启动，间隔 %1 ms。").arg(m_continuousDetectionIntervalMs));
+    emit continuousDetectionStateChanged(true);
+    triggerContinuousDetectionTick();
+    return true;
+}
+
+void AppController::stopContinuousDetection()
+{
+    // 连续检测停止入口：统一收敛开关、帧索引和定时器。
+    if (!m_isContinuousDetectionEnabled) {
+        return;
+    }
+
+    m_isContinuousDetectionEnabled = false;
+    m_lastContinuousDetectionFrameIndex = -1;
+    if (m_continuousDetectionTimer != nullptr) {
+        m_continuousDetectionTimer->stop();
+    }
+    m_logManager.info(QStringLiteral("检测"), QStringLiteral("连续检测已停止。"));
+    updateStatus(QStringLiteral("连续检测已停止。"));
+    emit continuousDetectionStateChanged(false);
 }
 
 bool AppController::buildFrameDetectionRequest(
@@ -475,6 +566,7 @@ bool AppController::buildFrameDetectionRequest(
     DetectionRequest *request,
     QString *errorMessage) const
 {
+    // 把采集帧复制为独立请求对象，避免后续预览帧被覆盖导致检测输入变化。
     if (errorMessage != nullptr) {
         errorMessage->clear();
     }
@@ -512,6 +604,7 @@ bool AppController::buildFileDetectionRequest(
     DetectionRequest *request,
     QString *errorMessage) const
 {
+    // 文件检测请求入口：先把图片转换为 CapturedFrame，再走统一帧请求构建逻辑。
     if (errorMessage != nullptr) {
         errorMessage->clear();
     }
@@ -522,6 +615,8 @@ bool AppController::buildFileDetectionRequest(
         return false;
     }
 
+    // 图片模式统一转换为 CapturedFrame，再复用 buildFrameDetectionRequest，
+    // 保持图片/视频/摄像头三种输入在检测侧走同一请求结构。
     const QImage image(imagePath);
     if (image.isNull()) {
         if (errorMessage != nullptr) {
@@ -550,6 +645,7 @@ bool AppController::buildFileDetectionRequest(
 
 bool AppController::cancelDetection()
 {
+    // 取消入口：先停止连续检测，再向检测 worker 提交取消请求。
     if (!m_isDetectionRunning) {
         updateStatus(QStringLiteral("当前没有可取消的检测任务。"));
         return false;
@@ -558,6 +654,10 @@ bool AppController::cancelDetection()
     if (m_isDetectionCancelRequested) {
         updateStatus(QStringLiteral("已提交取消请求，等待后台任务结束。"));
         return false;
+    }
+
+    if (m_isContinuousDetectionEnabled) {
+        stopContinuousDetection();
     }
 
     m_isDetectionCancelRequested = true;
@@ -574,8 +674,27 @@ bool AppController::cancelDetection()
     return true;
 }
 
+bool AppController::isContinuousDetectionEnabled() const noexcept
+{
+    return m_isContinuousDetectionEnabled;
+}
+
+int AppController::continuousDetectionIntervalMs() const noexcept
+{
+    return m_continuousDetectionIntervalMs;
+}
+
+void AppController::setContinuousDetectionIntervalMs(int intervalMs)
+{
+    m_continuousDetectionIntervalMs = std::max(kMinimumContinuousDetectionIntervalMs, intervalMs);
+    if (m_continuousDetectionTimer != nullptr) {
+        m_continuousDetectionTimer->setInterval(m_continuousDetectionIntervalMs);
+    }
+}
+
 bool AppController::connectTcpDevice()
 {
+    // TCP 连接入口：完成配置校验后进入“连接中”状态并发起异步连接请求。
     if (m_tcpOperationState != TcpOperationState::Idle) {
         updateStatus(QStringLiteral("TCP 正在处理其他操作，请稍候。"));
         return false;
@@ -603,6 +722,7 @@ bool AppController::connectTcpDevice()
         QStringLiteral("通信"),
         QStringLiteral("已提交 TCP 连接请求：%1:%2").arg(host).arg(m_deviceConfig.port));
     updateStatus(QStringLiteral("正在连接 TCP：%1:%2").arg(host).arg(m_deviceConfig.port));
+    // 先广播“连接中”状态，再提交异步连接请求。
     emit tcpStateChanged();
     emit tcpConnectRequested(m_deviceConfig);
     return true;
@@ -610,6 +730,7 @@ bool AppController::connectTcpDevice()
 
 void AppController::disconnectTcpDevice()
 {
+    // TCP 断连入口：切换到“断开中”状态并发起异步断连请求。
     if (m_tcpOperationState != TcpOperationState::Idle) {
         updateStatus(QStringLiteral("TCP 正在处理其他操作，请稍候。"));
         return;
@@ -628,6 +749,7 @@ void AppController::disconnectTcpDevice()
         QStringLiteral("通信"),
         QStringLiteral("已提交 TCP 断开请求：%1").arg(peerDescription));
     updateStatus(QStringLiteral("正在断开 TCP：%1").arg(peerDescription));
+    // 先广播“断开中”状态，再提交异步断连请求。
     emit tcpStateChanged();
     emit tcpDisconnectRequested();
 }
@@ -744,6 +866,7 @@ bool AppController::isDetectionCancelRequested() const noexcept
 
 void AppController::updateStatus(const QString &message)
 {
+    // 状态文本出口：去重后再广播，避免 UI 被重复状态刷新。
     if (m_statusMessage == message) {
         return;
     }
@@ -754,8 +877,14 @@ void AppController::updateStatus(const QString &message)
 
 void AppController::handleCaptureStatusUpdated(const CaptureStatusSnapshot &status)
 {
+    // 采集回调入口：同步采集快照并在必要时收敛预览/连续检测状态。
     const CaptureState previousState = m_captureStatus.state;
     m_captureStatus = status;
+    // 连续检测只在预览态有效，离开预览态时立即停止节拍。
+    if (m_isContinuousDetectionEnabled && m_captureStatus.state != CaptureState::Previewing) {
+        stopContinuousDetection();
+    }
+    // 错误态或关闭态统一清理预览缓存，避免界面显示过期帧。
     if (m_captureStatus.state == CaptureState::Error
         || (!m_captureStatus.opened && m_captureStatus.state != CaptureState::Opening)) {
         m_captureStatus.source = m_inputSourceConfig;
@@ -769,6 +898,7 @@ void AppController::handleCaptureStatusUpdated(const CaptureStatusSnapshot &stat
         emit previewFrameUpdated(QImage{});
     }
 
+    // 状态变化时统一输出结构化日志，便于回放采集状态流。
     if (previousState != m_captureStatus.state || !m_captureStatus.statusText.isEmpty()) {
         const QString stateText = [this]() {
             switch (m_captureStatus.state) {
@@ -800,15 +930,46 @@ void AppController::handleCaptureStatusUpdated(const CaptureStatusSnapshot &stat
         }
     }
 
+    // 采集状态文本变更后同步到控制器主状态。
     if (!m_captureStatus.statusText.isEmpty()) {
         updateStatus(m_captureStatus.statusText);
     }
 
+    // 最终由控制器统一广播采集快照，保持 UI 状态源单一。
     emit captureStatusChanged(m_captureStatus);
+}
+
+void AppController::triggerContinuousDetectionTick()
+{
+    // 连续检测只在开启状态下工作。
+    if (!m_isContinuousDetectionEnabled) {
+        return;
+    }
+
+    // 同一时刻只保留一个活动检测任务，避免状态流复杂化。
+    if (m_isDetectionRunning || m_isDetectionCancelRequested) {
+        return;
+    }
+
+    // 预览中且存在最新帧时才允许触发。
+    if (m_captureStatus.state != CaptureState::Previewing || !hasLatestFrame()) {
+        return;
+    }
+
+    const qint64 frameIndex = m_latestFrame.meta.frameIndex;
+    // 同一帧只检测一次，避免重复计算和重复输出。
+    if (frameIndex >= 0 && frameIndex == m_lastContinuousDetectionFrameIndex) {
+        return;
+    }
+
+    if (detectCurrentFrame()) {
+        m_lastContinuousDetectionFrameIndex = frameIndex;
+    }
 }
 
 void AppController::handlePreviewFrameReady(const CapturedFrame &frame)
 {
+    // 预览帧回调入口：仅更新“最新帧缓存”，渲染交给定时渲染函数统一处理。
     if (!m_captureStatus.opened || m_captureStatus.state != CaptureState::Previewing) {
         return;
     }
@@ -837,6 +998,7 @@ void AppController::handlePreviewFrameReady(const CapturedFrame &frame)
 
 void AppController::renderLatestPreviewFrame()
 {
+    // 预览渲染出口：把最新帧转换为 UI 预览图并广播到界面。
     if (!m_captureStatus.opened || m_captureStatus.state != CaptureState::Previewing) {
         return;
     }
@@ -883,6 +1045,7 @@ void AppController::renderLatestPreviewFrame()
 
     m_lastRenderedPreviewFrameIndex = m_latestPreviewFrame.meta.frameIndex;
     ++m_previewRenderedCount;
+    // 预览图统一由控制器转发到 UI，界面不直接依赖采集 worker。
     emit previewFrameUpdated(previewImage);
 
     if (!m_previewFrameDelivered) {
@@ -898,6 +1061,7 @@ void AppController::renderLatestPreviewFrame()
 
 void AppController::handleDetectionCompleted(const DetectionOutput &output)
 {
+    // 检测完成统一出口：收敛检测状态后按持久化/TCP/UI 顺序分发结果。
     const DetectResult &result = output.result;
     m_logManager.info(
         QStringLiteral("检测"),
@@ -926,6 +1090,8 @@ void AppController::handleDetectionCompleted(const DetectionOutput &output)
             .arg(utils::boolToResultText(result.isOk))
             .arg(result.defectCount)
             .arg(result.processTimeMs, 0, 'f', 2));
+    // 单次检测完成后统一分发到后续链路：
+    // 1) 持久化 2) 可选 TCP 发送 3) 结果图分发到 UI。
     m_logManager.info(
         QStringLiteral("记录"),
         QStringLiteral("持久化任务已提交：inspectionId=%1 captureId=%2 source=%3")
@@ -933,6 +1099,7 @@ void AppController::handleDetectionCompleted(const DetectionOutput &output)
             .arg(output.request.frame.meta.captureId)
             .arg(output.request.frame.meta.sourceName),
         false);
+    // 检测输出在这里分发到持久化链路。
     emit persistenceRequested(output);
     if (m_isTcpConnected) {
         m_logManager.info(
@@ -942,6 +1109,7 @@ void AppController::handleDetectionCompleted(const DetectionOutput &output)
                 .arg(utils::boolToResultText(result.isOk))
                 .arg(QStringLiteral("%1:%2").arg(m_deviceConfig.ip).arg(m_deviceConfig.port)),
             false);
+        // TCP 已连接时，检测结果继续分发到通信链路。
         emit tcpSendRequested(result.inspectionId, result.isOk);
     }
 
@@ -964,18 +1132,24 @@ void AppController::handleDetectionCompleted(const DetectionOutput &output)
         false);
     m_logManager.info(
         QStringLiteral("检测"),
-        QStringLiteral("结果图即将投递到界面：inspectionId=%1").arg(result.inspectionId),
+        QStringLiteral("结果图即将分发到界面：inspectionId=%1").arg(result.inspectionId),
         false);
+    // UI 层统一消费主线程中的 QImage，避免跨线程直接传递 cv::Mat 给界面。
     emit detectionFinished(result, resultImage);
     m_logManager.info(
         QStringLiteral("检测"),
-        QStringLiteral("结果图已投递到界面：inspectionId=%1").arg(result.inspectionId),
+        QStringLiteral("结果图已分发到界面：inspectionId=%1").arg(result.inspectionId),
         false);
     emit detectionRunningChanged(false);
+    // 连续检测开启时，检测完成后立即安排下一轮节拍检查。
+    if (m_isContinuousDetectionEnabled) {
+        QTimer::singleShot(0, this, &AppController::triggerContinuousDetectionTick);
+    }
 }
 
 void AppController::handlePersistenceCompleted(const PersistenceResult &result)
 {
+    // 持久化回调：记录归档结果并在成功时刷新最近记录列表。
     if (result.archiveSucceeded) {
         m_logManager.info(
             QStringLiteral("记录"),
@@ -1000,6 +1174,7 @@ void AppController::handlePersistenceCompleted(const PersistenceResult &result)
                 .arg(result.captureId)
                 .arg(result.record.timestamp),
             false);
+        // 记录成功保存后刷新 UI 最近记录列表。
         emit recordsChanged();
         return;
     }
@@ -1023,6 +1198,7 @@ void AppController::handleTcpSendCompleted(
     const QString &statusText,
     bool connected)
 {
+    // TCP 发送回调：更新连接快照并把发送结果回写到主状态文案。
     m_isTcpConnected = connected;
     m_tcpStatusText = statusText;
 
@@ -1058,6 +1234,7 @@ void AppController::handleTcpConnectCompleted(
     const QString &statusText,
     bool connected)
 {
+    // TCP 连接回调：退出连接操作态并发布最终连接状态。
     m_tcpOperationState = TcpOperationState::Idle;
     m_isTcpConnected = connected;
     m_tcpStatusText = statusText;
@@ -1079,8 +1256,10 @@ void AppController::handleTcpConnectCompleted(
 
 void AppController::handleTcpConfigApplied(const QString &statusText, bool connected)
 {
+    // 配置应用回调：同步连接快照并触发 UI 状态刷新。
     m_isTcpConnected = connected;
     m_tcpStatusText = statusText;
+    // 配置应用可能改变连接展示状态，需要广播给 UI 同步。
     emit tcpStateChanged();
 }
 
@@ -1089,6 +1268,7 @@ void AppController::handleTcpDisconnectCompleted(
     const QString &statusText,
     bool connected)
 {
+    // TCP 断连回调：退出断连操作态并广播最终未连接状态。
     m_tcpOperationState = TcpOperationState::Idle;
     m_isTcpConnected = connected;
     m_tcpStatusText = statusText;
@@ -1099,9 +1279,15 @@ void AppController::handleTcpDisconnectCompleted(
 
 void AppController::handleDetectionFailed(const QString &inspectionId, const QString &errorMessage)
 {
+    // 检测失败出口：统一收敛检测态并回传失败结果给 UI。
+    // 失败路径统一清理检测状态；连续检测开启时一并停止。
+    const bool stopContinuous = m_isContinuousDetectionEnabled;
     m_isDetectionRunning = false;
     m_isDetectionCancelRequested = false;
     m_activeInspectionId.clear();
+    if (stopContinuous) {
+        stopContinuousDetection();
+    }
     m_logManager.error(
         QStringLiteral("检测"),
         inspectionId.isEmpty() ? errorMessage
@@ -1109,15 +1295,22 @@ void AppController::handleDetectionFailed(const QString &inspectionId, const QSt
     updateStatus(
         inspectionId.isEmpty() ? QStringLiteral("检测失败：%1").arg(errorMessage)
                                : QStringLiteral("检测失败：%1（编号：%2）").arg(errorMessage, inspectionId));
+    // 先向 UI 报告失败，再关闭“检测中”状态。
     emit detectionFailed(errorMessage);
     emit detectionRunningChanged(false);
 }
 
 void AppController::handleDetectionCanceled(const QString &inspectionId)
 {
+    // 检测取消出口：沿用失败路径的状态收敛策略，保证状态机一致。
+    // 取消路径与失败路径一致：先收敛状态，再广播“已取消”结果。
+    const bool stopContinuous = m_isContinuousDetectionEnabled;
     m_isDetectionRunning = false;
     m_isDetectionCancelRequested = false;
     m_activeInspectionId.clear();
+    if (stopContinuous) {
+        stopContinuousDetection();
+    }
     m_logManager.warn(
         QStringLiteral("检测"),
         inspectionId.isEmpty() ? QStringLiteral("检测任务已取消。")

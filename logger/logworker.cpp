@@ -50,18 +50,26 @@ LogWorker::LogWorker(LogManager *manager, QString logDirectoryPath, QObject *par
     , m_manager(manager)
     , m_logDirectoryPath(std::move(logDirectoryPath))
 {
-    m_flushTimer.setInterval(kFlushIntervalMs);
-    m_flushTimer.setSingleShot(false);
-    connect(&m_flushTimer, &QTimer::timeout, this, &LogWorker::flush);
 }
 
 void LogWorker::initialize()
 {
-    m_flushTimer.start();
+    // worker 初始化入口：创建并启动周期刷盘定时器。
+    // 刷盘定时器在 worker 线程内创建并启动，避免跨线程定时器问题。
+    if (m_flushTimer == nullptr) {
+        m_flushTimer = new QTimer(this);
+        m_flushTimer->setInterval(kFlushIntervalMs);
+        m_flushTimer->setSingleShot(false);
+        connect(m_flushTimer, &QTimer::timeout, this, &LogWorker::flush);
+    }
+
+    m_flushTimer->start();
 }
 
 void LogWorker::drainQueue()
 {
+    // 队列消费入口：批量取出日志并依次处理。
+    // 批量消费队列，减少线程切换和文件 I/O 频率。
     if (m_manager == nullptr) {
         return;
     }
@@ -102,9 +110,11 @@ void LogWorker::drainQueue()
 
 void LogWorker::shutdown()
 {
+    // 线程收尾入口：刷盘并关闭文件句柄。
+    // 关闭前先执行最后一次刷盘，尽量避免日志丢失。
     flush();
-    if (m_flushTimer.isActive()) {
-        m_flushTimer.stop();
+    if (m_flushTimer != nullptr && m_flushTimer->isActive()) {
+        m_flushTimer->stop();
     }
 
     if (m_logFile.isOpen()) {
@@ -114,6 +124,8 @@ void LogWorker::shutdown()
 
 void LogWorker::processEvent(const LogEvent &event)
 {
+    // 单条事件处理：文件落盘、控制台输出、可选 UI 回调。
+    // 持久化和控制台输出解耦：即使文件不可写，控制台与 UI 仍可见。
     if (event.persist) {
         QString fileError;
         if (ensureLogFileReady(event.timestamp.date(), &fileError)) {
@@ -135,6 +147,8 @@ void LogWorker::processEvent(const LogEvent &event)
 
 void LogWorker::flush()
 {
+    // 周期刷盘入口：把缓冲数据落盘到日志文件。
+    // 仅在有待刷数据时执行 flush，降低空转开销。
     if (!m_hasPendingFlush || !m_logFile.isOpen()) {
         return;
     }
@@ -161,6 +175,8 @@ QString LogWorker::resolvedLogDirectoryPath() const
 
 bool LogWorker::ensureLogFileReady(const QDate &date, QString *errorMessage)
 {
+    // 日志文件准备入口：按日期滚动并确保目录可写。
+    // 每日滚动日志文件，按日期切换输出目标。
     if (m_logFile.isOpen() && m_activeLogDate == date) {
         return true;
     }
@@ -194,6 +210,7 @@ bool LogWorker::ensureLogFileReady(const QDate &date, QString *errorMessage)
 
 void LogWorker::writeToConsole(const LogEvent &event) const
 {
+    // 控制台级别映射保持和日志级别一致，便于调试时快速识别。
     if (event.level == QStringLiteral("ERROR")) {
         qCritical().noquote() << event.formattedLine;
     } else if (event.level == QStringLiteral("DEBUG")) {

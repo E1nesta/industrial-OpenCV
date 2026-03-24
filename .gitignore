@@ -50,9 +50,8 @@
 *.local.yaml
 *.local.yml
 
-# Internal documentation (not for external exposure)
-/README.md
-/docs/
+# Archived documentation
+/docs/archive/
 
 # OS-generated files
 Thumbs.db

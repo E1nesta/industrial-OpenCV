@@ -7,32 +7,33 @@
   },
   "configurePresets": [
     {
+      "name": "base-ninja",
+      "hidden": true,
+      "generator": "Ninja",
+      "cacheVariables": {
+        "VISION_USE_VCPKG": "ON",
+        "VISION_REQUIRE_VIDEO_RUNTIME": "ON"
+      }
+    },
+    {
       "name": "mingw-debug",
       "displayName": "MinGW Debug",
-      "description": "Current local-machine baseline: use Ninja with the active build/mingw-debug output directory.",
-      "generator": "Ninja",
+      "description": "Generic MinGW/Ninja debug preset. Resolve compiler and package roots from PATH, environment variables, or CMakeUserPresets.json.",
+      "inherits": "base-ninja",
       "binaryDir": "${sourceDir}/build/mingw-debug",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "CMAKE_MAKE_PROGRAM": "G:/CODE/Tools/Ninja/ninja.exe",
-        "CMAKE_CXX_COMPILER": "G:/CODE/Tools/mingw1310_64/bin/g++.exe",
-        "VISION_USE_VCPKG": "ON",
-        "VISION_REQUIRE_VIDEO_RUNTIME": "ON",
         "VCPKG_TARGET_TRIPLET": "x64-mingw-dynamic"
       }
     },
     {
       "name": "mingw-release",
       "displayName": "MinGW Release",
-      "description": "Current local-machine baseline: use Ninja with the active build/mingw-release output directory.",
-      "generator": "Ninja",
+      "description": "Generic MinGW/Ninja release preset. Resolve compiler and package roots from PATH, environment variables, or CMakeUserPresets.json.",
+      "inherits": "base-ninja",
       "binaryDir": "${sourceDir}/build/mingw-release",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "CMAKE_MAKE_PROGRAM": "G:/CODE/Tools/Ninja/ninja.exe",
-        "CMAKE_CXX_COMPILER": "G:/CODE/Tools/mingw1310_64/bin/g++.exe",
-        "VISION_USE_VCPKG": "ON",
-        "VISION_REQUIRE_VIDEO_RUNTIME": "ON",
         "VCPKG_TARGET_TRIPLET": "x64-mingw-dynamic"
       }
     }

@@ -105,8 +105,8 @@ if(CMAKE_PREFIX_PATH)
 endif()
 if(NOT VISION_QT_ROOT)
     message(WARNING
-        "QTDIR/QT_ROOT is not configured yet. In the current local-machine baseline, this is "
-        "the first environment gap to resolve before analyzing OpenCV or video runtime issues."
+        "QTDIR/QT_ROOT is not configured yet. Set VISION_QT_ROOT, QTDIR, QT_ROOT, "
+        "or CMAKE_PREFIX_PATH before analyzing OpenCV or video runtime issues."
     )
 endif()
 
@@ -163,16 +163,17 @@ if(VISION_REQUIRE_VIDEO_RUNTIME)
 
     if(NOT VISION_VCPKG_ROOT AND NOT _vision_has_explicit_opencv_override)
         message(FATAL_ERROR
-            "VISION_REQUIRE_VIDEO_RUNTIME=ON requires either the standard vcpkg environment "
-            "(VCPKG_ROOT / x64-mingw-dynamic) or an explicit dynamic OpenCV override via "
+            "VISION_REQUIRE_VIDEO_RUNTIME=ON requires either a vcpkg environment with deployable "
+            "dynamic OpenCV runtimes or an explicit dynamic OpenCV override via "
             "OpenCV_DIR/OpenCV_ROOT."
         )
     endif()
 
-    if(VISION_VCPKG_ROOT AND NOT VCPKG_TARGET_TRIPLET STREQUAL "x64-mingw-dynamic")
+    if(VISION_VCPKG_ROOT AND VCPKG_TARGET_TRIPLET MATCHES "static")
         message(FATAL_ERROR
-            "This project requires VCPKG_TARGET_TRIPLET=x64-mingw-dynamic for video preview support. "
-            "Static or non-MinGW triplets are not supported in the standard environment."
+            "This project requires a dynamic OpenCV runtime for video preview support. "
+            "The selected vcpkg triplet (${VCPKG_TARGET_TRIPLET}) appears to be static. "
+            "Use a dynamic triplet such as x64-mingw-dynamic or x64-windows."
         )
     endif()
 
@@ -231,7 +232,7 @@ message(STATUS "OpenCV runtime search roots: ${_vision_opencv_runtime_search_roo
 if(VISION_REQUIRE_VIDEO_RUNTIME AND NOT _vision_opencv_runtime_search_roots)
     message(FATAL_ERROR
         "No OpenCV runtime search roots were resolved. "
-        "Use the standard vcpkg dynamic install or set OpenCV_DIR/OpenCV_ROOT explicitly."
+        "Use a dynamic vcpkg install or set OpenCV_DIR/OpenCV_ROOT explicitly."
     )
 endif()
 
@@ -281,7 +282,7 @@ if(_vision_opencv_runtime_dlls)
 elseif(VISION_REQUIRE_VIDEO_RUNTIME)
     message(FATAL_ERROR
         "No OpenCV runtime DLLs were found in the resolved runtime search roots. "
-        "The standard environment requires deployable dynamic OpenCV runtimes."
+        "The configured build expects deployable dynamic OpenCV runtimes."
     )
 elseif(OpenCV_SHARED)
     message(WARNING
@@ -309,7 +310,7 @@ if(_vision_opencv_videoio_runtime_deps)
 elseif(VISION_REQUIRE_VIDEO_RUNTIME)
     message(FATAL_ERROR
         "No FFmpeg runtime dependency DLLs were found in the resolved runtime search roots. "
-        "The standard environment requires deployable FFmpeg dependencies for video playback."
+        "The configured build expects deployable FFmpeg dependencies for video playback."
     )
 else()
     message(WARNING

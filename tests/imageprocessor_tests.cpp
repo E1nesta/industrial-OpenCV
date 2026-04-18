@@ -2,7 +2,7 @@
 
 #include <opencv2/imgproc.hpp>
 
-#include "vision/imageprocessor.h"
+#include "domain/services/imageprocessor.h"
 
 class ImageProcessorTests : public QObject
 {
@@ -18,7 +18,7 @@ private slots:
 void ImageProcessorTests::returnsFailureForEmptyImage()
 {
     ImageProcessor processor;
-    const DetectResult result = processor.process(cv::Mat{}, VisionParam{}, nullptr);
+    const InspectionResult result = processor.process(cv::Mat{}, Recipe{}, nullptr);
 
     QVERIFY(!result.isOk);
     QVERIFY(!result.canceled);
@@ -31,13 +31,13 @@ void ImageProcessorTests::detectsDarkDefectOnLargeFrame()
     cv::Mat image(1920, 1080, CV_8UC3, cv::Scalar(255, 255, 255));
     cv::rectangle(image, cv::Rect(220, 340, 160, 180), cv::Scalar(0, 0, 0), cv::FILLED);
 
-    VisionParam param;
+    Recipe param;
     param.threshold = 128;
     param.minArea = 100;
     param.maxArea = 200000;
 
     ImageProcessor processor;
-    const DetectResult result = processor.process(image, param, nullptr);
+    const InspectionResult result = processor.process(image, param, nullptr);
 
     QVERIFY(!result.canceled);
     QVERIFY(!result.isOk);
@@ -55,14 +55,14 @@ void ImageProcessorTests::appliesRoiAndOffsetsDefectRect()
     cv::Mat image(800, 600, CV_8UC3, cv::Scalar(255, 255, 255));
     cv::rectangle(image, cv::Rect(180, 220, 90, 110), cv::Scalar(0, 0, 0), cv::FILLED);
 
-    VisionParam param;
+    Recipe param;
     param.threshold = 128;
     param.minArea = 50;
     param.maxArea = 50000;
     param.roi = QRect(120, 180, 240, 220);
 
     ImageProcessor processor;
-    const DetectResult result = processor.process(image, param, nullptr);
+    const InspectionResult result = processor.process(image, param, nullptr);
 
     QVERIFY(!result.canceled);
     QVERIFY(!result.isOk);
@@ -81,14 +81,14 @@ void ImageProcessorTests::supportsBgraInputWithManualGrayConversion()
     cv::Mat image(480, 640, CV_8UC4, cv::Scalar(255, 255, 255, 255));
     cv::rectangle(image, cv::Rect(120, 150, 80, 90), cv::Scalar(0, 0, 0, 255), cv::FILLED);
 
-    VisionParam param;
+    Recipe param;
     param.threshold = 128;
     param.minArea = 50;
     param.maxArea = 20000;
     param.grayConversionMode = GrayConversionMode::StableManual;
 
     ImageProcessor processor;
-    const DetectResult result = processor.process(image, param, nullptr);
+    const InspectionResult result = processor.process(image, param, nullptr);
 
     QVERIFY(!result.canceled);
     QVERIFY(!result.isOk);

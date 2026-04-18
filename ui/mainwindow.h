@@ -1,15 +1,18 @@
 #pragma once
 
+#include <QImage>
+#include <QList>
 #include <QMainWindow>
+#include <QRect>
 #include <QString>
 #include <QStringList>
 
-#include "models/detectresult.h"
-#include "models/deviceconfig.h"
-#include "models/inputsource.h"
-#include "models/inspectionrecord.h"
-#include "models/visionparam.h"
-#include "logger/logevent.h"
+#include "domain/entities/inspectionresult.h"
+#include "domain/entities/deviceconfig.h"
+#include "domain/entities/inputsource.h"
+#include "domain/entities/inspectionrecord.h"
+#include "domain/entities/recipe.h"
+#include "common/logging/logevent.h"
 
 class AppController;
 class ImageViewWidget;
@@ -34,13 +37,13 @@ public:
 private slots:
     // UI 交互入口：响应按钮点击和输入源切换。
     void onImportImageClicked();
-    void onStartDetectionClicked();
-    void onStopDetectionClicked();
+    void onStartInspectionClicked();
+    void onStopInspectionClicked();
     void onExportRecordsClicked();
     void onRecentRecordActivated(int row, int column);
-    void onLoadParamClicked();
-    void onSaveParamClicked();
-    void onResetParamClicked();
+    void onLoadConfigClicked();
+    void onSaveConfigClicked();
+    void onResetConfigClicked();
     void onTcpConnectClicked();
     void onInputSourceTypeChanged();
     void onBrowseInputSourceClicked();
@@ -48,14 +51,14 @@ private slots:
     void onCloseInputSourceClicked();
     void onStartPreviewClicked();
     void onStopPreviewClicked();
-    void onStartContinuousDetectionClicked();
-    void onStopContinuousDetectionClicked();
+    void onStartContinuousInspectionClicked();
+    void onStopContinuousInspectionClicked();
     // 控制器回调：把后台状态和结果同步回界面。
-    void onDetectionStarted();
-    void onDetectionFinished(const DetectResult &result, const QImage &resultImage);
-    void onDetectionFailed(const QString &errorMessage);
-    void onDetectionCanceled();
-    void onDetectionRunningChanged(bool isRunning);
+    void onInspectionStarted();
+    void onInspectionFinished(const InspectionResult &result, const QImage &resultImage);
+    void onInspectionFailed(const QString &errorMessage);
+    void onInspectionCanceled();
+    void onInspectionRunningChanged(bool isRunning);
     void onControllerStatusChanged(const QString &message);
     void onCaptureStatusChanged(const CaptureStatusSnapshot &status);
     void onPreviewFrameUpdated(const QImage &previewImage);
@@ -69,10 +72,11 @@ private slots:
 
 private:
     // 参数收集：从界面控件读取当前配置。
-    VisionParam collectVisionParam() const;
+    Recipe collectRecipe() const;
     DeviceConfig collectDeviceConfig() const;
     InputSourceConfig collectInputSourceConfig() const;
     QRect collectRoi() const;
+    InputSourceConfig displayInputSourceConfig() const;
 
     // 结果与记录展示。
     void displayRecordDetails(const InspectionRecord &record);
@@ -110,4 +114,5 @@ private:
 
     // 预览首帧渲染标记，避免重复日志。
     bool m_previewFrameRendered = false;
+    bool m_activeInspectionWasContinuous = false;
 };

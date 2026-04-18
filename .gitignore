@@ -49,6 +49,8 @@
 *.local.json
 *.local.yaml
 *.local.yml
+.codex
+/build-review-check/
 
 # Archived documentation
 /docs/archive/

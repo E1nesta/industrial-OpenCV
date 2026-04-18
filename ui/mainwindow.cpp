@@ -15,10 +15,11 @@
 #include <QStatusBar>
 #include <QTableWidgetItem>
 #include <QTextDocument>
+#include <QTextStream>
 #include <QVBoxLayout>
 
-#include "app/appcontroller.h"
-#include "common/utils.h"
+#include "application/controllers/appcontroller.h"
+#include "common/utils/utils.h"
 #include "ui/imageviewwidget.h"
 
 namespace
@@ -110,7 +111,7 @@ void MainWindow::onImportImageClicked()
     const bool isVideoMode = config.type == InputSourceType::VideoFile;
     const QString filePath = QFileDialog::getOpenFileName(
         this,
-        isVideoMode ? tr("选择视频文件") : tr("选择检测图片"),
+        isVideoMode ? tr("选择视频文件") : tr("选择巡检图片"),
         ui->inputSourcePathLineEdit->text().trimmed(),
         isVideoMode ? tr("视频文件 (*.mp4 *.avi *.mov *.mkv)")
                     : tr("图片文件 (*.png *.jpg *.jpeg *.bmp)"));
@@ -119,10 +120,9 @@ void MainWindow::onImportImageClicked()
         return;
     }
 
-    ui->inputSourcePathLineEdit->setText(filePath);
-    m_controller->setInputSourceConfig(collectInputSourceConfig());
-
     if (isVideoMode) {
+        ui->inputSourcePathLineEdit->setText(filePath);
+        m_controller->setInputSourceConfig(collectInputSourceConfig());
         // 视频模式只更新来源与占位状态，实际画面由预览帧驱动刷新。
         m_currentImagePath.clear();
         m_previewFrameRendered = false;
@@ -145,6 +145,8 @@ void MainWindow::onImportImageClicked()
         return;
     }
 
+    ui->inputSourcePathLineEdit->setText(filePath);
+    m_controller->setInputSourceConfig(collectInputSourceConfig());
     m_currentImagePath = filePath;
     m_sourceImageView->setImage(image);
     m_resultImageView->clearImage();
@@ -157,61 +159,59 @@ void MainWindow::onImportImageClicked()
     statusBar()->showMessage(tr("图片已加载"), 3000);
 }
 
-void MainWindow::onStartDetectionClicked()
+void MainWindow::onStartInspectionClicked()
 {
     // 检测入口统一先同步最新参数，再按输入源类型分发到图片/当前帧检测链。
-    m_controller->setVisionParam(collectVisionParam());
+    m_controller->setRecipe(collectRecipe());
 
     if (collectInputSourceConfig().type == InputSourceType::FileImage) {
-        if (m_currentImagePath.isEmpty()) {
-            const QString candidatePath = ui->inputSourcePathLineEdit->text().trimmed();
-            if (candidatePath.isEmpty()) {
-                QMessageBox::information(this, tr("尚未选择图片"), tr("请先导入一张待检测图片。"));
-                return;
-            }
+        const QString candidatePath = ui->inputSourcePathLineEdit->text().trimmed();
+        const bool shouldLoadCandidate = !candidatePath.isEmpty() && candidatePath != m_currentImagePath;
+        const bool hasEffectivePath = !candidatePath.isEmpty() || !m_currentImagePath.isEmpty();
+        if (!hasEffectivePath) {
+            QMessageBox::information(this, tr("尚未选择图片"), tr("请先导入一张待巡检图片。"));
+            return;
+        }
 
-            const QImage image(candidatePath);
+        if (m_currentImagePath.isEmpty() || shouldLoadCandidate) {
+            const QString pathToLoad = candidatePath.isEmpty() ? m_currentImagePath : candidatePath;
+            const QImage image(pathToLoad);
             if (image.isNull()) {
                 QMessageBox::warning(this, tr("图片加载失败"), tr("当前路径无法作为图片加载，请重新选择图片。"));
                 return;
             }
 
-            m_currentImagePath = candidatePath;
+            m_currentImagePath = pathToLoad;
             m_sourceImageView->setImage(image);
-            ui->currentImageValueLabel->setText(candidatePath);
+            ui->currentImageValueLabel->setText(pathToLoad);
         }
 
-        if (m_currentImagePath.isEmpty()) {
-            QMessageBox::information(this, tr("尚未选择图片"), tr("请先导入一张待检测图片。"));
-            return;
-        }
-
-        if (!m_controller->startDetection(m_currentImagePath)) {
-            if (!m_controller->isDetectionRunning()) {
-                QMessageBox::warning(this, tr("检测未启动"), m_controller->statusMessage());
+        if (!m_controller->startInspection(m_currentImagePath)) {
+            if (!m_controller->isInspectionRunning()) {
+                QMessageBox::warning(this, tr("巡检未启动"), m_controller->statusMessage());
             }
             return;
         }
         return;
     }
 
-    if (!m_controller->detectCurrentFrame()) {
-        if (!m_controller->isDetectionRunning()) {
-            QMessageBox::warning(this, tr("检测未启动"), m_controller->statusMessage());
+    if (!m_controller->inspectCurrentFrame()) {
+        if (!m_controller->isInspectionRunning()) {
+            QMessageBox::warning(this, tr("巡检未启动"), m_controller->statusMessage());
         }
         return;
     }
 }
 
-void MainWindow::onStopDetectionClicked()
+void MainWindow::onStopInspectionClicked()
 {
     // UI 停止入口：请求控制器取消当前检测任务并更新界面提示。
-    if (!m_controller->cancelDetection()) {
+    if (!m_controller->cancelInspection()) {
         return;
     }
 
     ui->resultStateValueLabel->setText(QStringLiteral("取消中"));
-    statusBar()->showMessage(tr("正在取消检测任务"), 3000);
+    statusBar()->showMessage(tr("正在取消巡检任务"), 3000);
 }
 
 void MainWindow::onExportRecordsClicked()
@@ -269,6 +269,19 @@ void MainWindow::onRecentRecordActivated(int row, int column)
     // 历史记录入口：双击行后加载对应原图和结果图。
     Q_UNUSED(column);
 
+    const CaptureStatusSnapshot &captureStatus = m_controller->captureStatus();
+    const bool captureBusy = captureStatus.opened
+        || captureStatus.state == CaptureState::Opening
+        || captureStatus.state == CaptureState::Closing;
+    if (m_controller->isInspectionRunning() || m_controller->isContinuousInspectionEnabled()) {
+        statusBar()->showMessage(tr("检测运行中，暂不支持切换到历史记录"), 3000);
+        return;
+    }
+    if (captureBusy) {
+        statusBar()->showMessage(tr("输入源占用中，请先关闭输入源后再回看历史记录"), 3000);
+        return;
+    }
+
     if (row < 0 || row >= m_recentRecords.size()) {
         return;
     }
@@ -276,22 +289,22 @@ void MainWindow::onRecentRecordActivated(int row, int column)
     displayRecordDetails(m_recentRecords.at(row));
 }
 
-void MainWindow::onLoadParamClicked()
+void MainWindow::onLoadConfigClicked()
 {
     // 参数重载入口：从配置文件回填控制器与界面状态。
     m_controller->reloadConfig();
 }
 
-void MainWindow::onSaveParamClicked()
+void MainWindow::onSaveConfigClicked()
 {
     // 参数保存入口：采集当前界面参数并统一落盘。
-    m_controller->setVisionParam(collectVisionParam());
+    m_controller->setRecipe(collectRecipe());
     m_controller->setDeviceConfig(collectDeviceConfig());
     m_controller->setInputSourceConfig(collectInputSourceConfig());
     m_controller->saveCurrentParam();
 }
 
-void MainWindow::onResetParamClicked()
+void MainWindow::onResetConfigClicked()
 {
     // 参数重置入口：恢复默认值并触发界面同步。
     m_controller->resetToDefaults();
@@ -316,23 +329,29 @@ void MainWindow::onInputSourceTypeChanged()
 {
     // 输入源类型切换时，先处理打开态收尾，再重置界面显示上下文。
     const InputSourceConfig previousConfig = m_controller->inputSourceConfig();
-    const InputSourceConfig config = collectInputSourceConfig();
-    if (previousConfig.type != config.type && m_controller->captureStatus().opened) {
+    const InputSourceType nextType =
+        static_cast<InputSourceType>(ui->inputSourceTypeComboBox->currentIndex());
+    if (previousConfig.type != nextType && m_controller->captureStatus().opened) {
         m_controller->closeInputSource();
     }
 
-    if (previousConfig.type != config.type) {
+    if (previousConfig.type != nextType) {
         m_currentImagePath.clear();
         m_previewFrameRendered = false;
         m_sourceImageView->clearImage();
+        m_resultImageView->clearImage();
         ui->inputSourcePathLineEdit->clear();
-        if (config.type == InputSourceType::FileImage) {
+        if (nextType == InputSourceType::FileImage) {
             ui->currentImageValueLabel->setText(QStringLiteral("未选择"));
         } else {
-            ui->currentImageValueLabel->setText(sourcePlaceholderText(config.type));
+            ui->currentImageValueLabel->setText(sourcePlaceholderText(nextType));
         }
+        ui->resultStateValueLabel->setText(QStringLiteral("--"));
+        ui->defectCountValueLabel->setText(QStringLiteral("--"));
+        ui->processTimeValueLabel->setText(QStringLiteral("--"));
     }
 
+    const InputSourceConfig config = collectInputSourceConfig();
     m_controller->setInputSourceConfig(config);
     updateInputSourceUi();
     syncCaptureState();
@@ -374,39 +393,42 @@ void MainWindow::onStopPreviewClicked()
     m_controller->stopPreview();
 }
 
-void MainWindow::onStartContinuousDetectionClicked()
+void MainWindow::onStartContinuousInspectionClicked()
 {
     // 连续检测入口：同步参数后启动“预览帧驱动”的检测节拍。
-    m_controller->setVisionParam(collectVisionParam());
-    m_controller->setContinuousDetectionIntervalMs(ui->continuousDetectionIntervalSpinBox->value());
+    m_controller->setRecipe(collectRecipe());
+    m_controller->setContinuousInspectionIntervalMs(ui->continuousInspectionIntervalSpinBox->value());
     m_controller->setInputSourceConfig(collectInputSourceConfig());
 
-    if (!m_controller->startContinuousDetection()) {
-        QMessageBox::warning(this, tr("连续检测未启动"), m_controller->statusMessage());
+    if (!m_controller->startContinuousInspection()) {
+        QMessageBox::warning(this, tr("连续巡检未启动"), m_controller->statusMessage());
         return;
     }
 
-    statusBar()->showMessage(tr("连续检测已启动"), 3000);
+    statusBar()->showMessage(tr("连续巡检已启动"), 3000);
 }
 
-void MainWindow::onStopContinuousDetectionClicked()
+void MainWindow::onStopContinuousInspectionClicked()
 {
     // 连续检测停止入口：关闭节拍并刷新界面提示。
-    m_controller->stopContinuousDetection();
-    statusBar()->showMessage(tr("连续检测已停止"), 3000);
+    m_controller->stopContinuousInspection();
+    statusBar()->showMessage(tr("连续巡检已停止"), 3000);
 }
 
-void MainWindow::onDetectionStarted()
+void MainWindow::onInspectionStarted()
 {
-    // 检测开始回调：先清空旧结果并切换到“检测中”展示态。
-    m_resultImageView->clearImage();
-    ui->resultStateValueLabel->setText(QStringLiteral("检测中"));
+    // 连续检测保留上一帧结果，避免结果区在每轮开始时先空一下造成跳闪。
+    m_activeInspectionWasContinuous = m_controller->isContinuousInspectionEnabled();
+    if (!m_activeInspectionWasContinuous) {
+        m_resultImageView->clearImage();
+    }
+    ui->resultStateValueLabel->setText(QStringLiteral("巡检中"));
     ui->defectCountValueLabel->setText(QStringLiteral("--"));
     ui->processTimeValueLabel->setText(QStringLiteral("--"));
-    statusBar()->showMessage(tr("检测任务执行中"), 3000);
+    statusBar()->showMessage(tr("巡检任务执行中"), 3000);
 }
 
-void MainWindow::onDetectionFinished(const DetectResult &result, const QImage &resultImage)
+void MainWindow::onInspectionFinished(const InspectionResult &result, const QImage &resultImage)
 {
     // 检测完成回调：展示结果图并更新检测摘要信息。
     m_controller->logManager().info(
@@ -425,61 +447,68 @@ void MainWindow::onDetectionFinished(const DetectResult &result, const QImage &r
     ui->resultStateValueLabel->setText(utils::boolToResultText(result.isOk));
     ui->defectCountValueLabel->setText(QString::number(result.defectCount));
     ui->processTimeValueLabel->setText(QStringLiteral("%1 ms").arg(result.processTimeMs, 0, 'f', 2));
-    statusBar()->showMessage(tr("检测完成"), 3000);
+    m_activeInspectionWasContinuous = false;
+    statusBar()->showMessage(tr("巡检完成"), 3000);
 }
 
-void MainWindow::onDetectionFailed(const QString &errorMessage)
+void MainWindow::onInspectionFailed(const QString &errorMessage)
 {
     // 检测失败回调：更新失败态并弹出错误说明。
     ui->resultStateValueLabel->setText(QStringLiteral("失败"));
     ui->defectCountValueLabel->setText(QStringLiteral("--"));
     ui->processTimeValueLabel->setText(QStringLiteral("--"));
-    statusBar()->showMessage(tr("检测失败"), 3000);
-    QMessageBox::warning(this, tr("检测失败"), errorMessage);
+    m_resultImageView->clearImage();
+    statusBar()->showMessage(tr("巡检失败"), 3000);
+    if (!m_activeInspectionWasContinuous) {
+        QMessageBox::warning(this, tr("巡检失败"), errorMessage);
+    }
+    m_activeInspectionWasContinuous = false;
 }
 
-void MainWindow::onDetectionCanceled()
+void MainWindow::onInspectionCanceled()
 {
     // 检测取消回调：复位结果展示并提示任务已取消。
     ui->resultStateValueLabel->setText(QStringLiteral("已取消"));
     ui->defectCountValueLabel->setText(QStringLiteral("--"));
     ui->processTimeValueLabel->setText(QStringLiteral("--"));
     m_resultImageView->clearImage();
-    statusBar()->showMessage(tr("检测任务已取消"), 3000);
+    m_activeInspectionWasContinuous = false;
+    statusBar()->showMessage(tr("巡检任务已取消"), 3000);
 }
 
-void MainWindow::onDetectionRunningChanged(bool isRunning)
+void MainWindow::onInspectionRunningChanged(bool isRunning)
 {
     // 检测运行态是界面启停规则的总开关：统一控制参数编辑、TCP 配置和采集操作。
-    const bool cancelRequested = m_controller->isDetectionCancelRequested();
+    const bool cancelRequested = m_controller->isInspectionCancelRequested();
+    const bool continuousEnabled = m_controller->isContinuousInspectionEnabled();
+    const bool lockForActiveDetection = isRunning || continuousEnabled;
 
     if (isRunning && cancelRequested) {
         ui->resultStateValueLabel->setText(QStringLiteral("取消中"));
     } else if (isRunning) {
-        ui->resultStateValueLabel->setText(QStringLiteral("检测中"));
+        ui->resultStateValueLabel->setText(QStringLiteral("巡检中"));
     }
 
-    ui->startDetectionButton->setEnabled(!isRunning);
-    ui->stopDetectionButton->setEnabled(isRunning && !cancelRequested);
-    ui->stopDetectionButton->setText(cancelRequested ? QStringLiteral("取消中...") : QStringLiteral("停止检测"));
-    ui->loadParamButton->setEnabled(!isRunning);
-    ui->saveParamButton->setEnabled(!isRunning);
-    ui->resetParamButton->setEnabled(!isRunning);
-    ui->tcpConnectButton->setEnabled(!isRunning);
-    ui->thresholdSpinBox->setEnabled(!isRunning);
-    ui->minAreaSpinBox->setEnabled(!isRunning);
-    ui->maxAreaSpinBox->setEnabled(!isRunning);
-    ui->morphologyCheckBox->setEnabled(!isRunning);
-    ui->roiXSpinBox->setEnabled(!isRunning);
-    ui->roiYSpinBox->setEnabled(!isRunning);
-    ui->roiWidthSpinBox->setEnabled(!isRunning);
-    ui->roiHeightSpinBox->setEnabled(!isRunning);
-    ui->clearRoiButton->setEnabled(!isRunning);
-    ui->imageSavePathLineEdit->setEnabled(!isRunning);
-    ui->browseImageSavePathButton->setEnabled(!isRunning);
-    ui->tcpIpLineEdit->setEnabled(!isRunning);
-    ui->tcpPortSpinBox->setEnabled(!isRunning);
+    ui->startInspectionButton->setEnabled(!lockForActiveDetection);
+    ui->stopInspectionButton->setEnabled(isRunning && !cancelRequested);
+    ui->stopInspectionButton->setText(cancelRequested ? QStringLiteral("取消中...") : QStringLiteral("停止巡检"));
+    ui->loadConfigButton->setEnabled(!lockForActiveDetection);
+    ui->saveConfigButton->setEnabled(!lockForActiveDetection);
+    ui->resetConfigButton->setEnabled(!lockForActiveDetection);
+    ui->tcpConnectButton->setEnabled(!lockForActiveDetection);
+    ui->thresholdSpinBox->setEnabled(!lockForActiveDetection);
+    ui->minAreaSpinBox->setEnabled(!lockForActiveDetection);
+    ui->maxAreaSpinBox->setEnabled(!lockForActiveDetection);
+    ui->morphologyCheckBox->setEnabled(!lockForActiveDetection);
+    ui->roiXSpinBox->setEnabled(!lockForActiveDetection);
+    ui->roiYSpinBox->setEnabled(!lockForActiveDetection);
+    ui->roiWidthSpinBox->setEnabled(!lockForActiveDetection);
+    ui->roiHeightSpinBox->setEnabled(!lockForActiveDetection);
+    ui->clearRoiButton->setEnabled(!lockForActiveDetection);
+    ui->imageSavePathLineEdit->setEnabled(!lockForActiveDetection);
+    ui->browseImageSavePathButton->setEnabled(!lockForActiveDetection);
     syncCaptureState();
+    syncTcpState();
 }
 
 void MainWindow::onControllerStatusChanged(const QString &message)
@@ -533,9 +562,14 @@ void MainWindow::onPreviewFrameUpdated(const QImage &previewImage)
 void MainWindow::syncFromController()
 {
     // 全量同步入口：把控制器当前配置与状态回填到所有相关控件。
-    const VisionParam &param = m_controller->visionParam();
+    const Recipe &param = m_controller->recipe();
     const DeviceConfig &deviceConfig = m_controller->deviceConfig();
     const InputSourceConfig &inputConfig = m_controller->inputSourceConfig();
+    const InputSourceConfig displayedInputConfig = displayInputSourceConfig();
+    const QString configuredSourcePath = inputConfig.sourcePath.trimmed();
+    const bool loadedFileOutOfSync =
+        !m_currentImagePath.isEmpty()
+        && (inputConfig.type != InputSourceType::FileImage || configuredSourcePath != m_currentImagePath);
 
     ui->thresholdSpinBox->setValue(param.threshold);
     ui->minAreaSpinBox->setValue(param.minArea);
@@ -547,12 +581,12 @@ void MainWindow::syncFromController()
     ui->tcpPortSpinBox->setValue(deviceConfig.port);
     {
         const QSignalBlocker typeBlocker(ui->inputSourceTypeComboBox);
-        ui->inputSourceTypeComboBox->setCurrentIndex(static_cast<int>(inputConfig.type));
+        ui->inputSourceTypeComboBox->setCurrentIndex(static_cast<int>(displayedInputConfig.type));
     }
-    ui->inputSourcePathLineEdit->setText(inputConfig.sourcePath);
-    ui->cameraDeviceSpinBox->setValue(inputConfig.deviceIndex);
-    ui->previewIntervalSpinBox->setValue(inputConfig.previewIntervalMs);
-    ui->continuousDetectionIntervalSpinBox->setValue(m_controller->continuousDetectionIntervalMs());
+    ui->inputSourcePathLineEdit->setText(displayedInputConfig.sourcePath.trimmed());
+    ui->cameraDeviceSpinBox->setValue(displayedInputConfig.deviceIndex);
+    ui->previewIntervalSpinBox->setValue(displayedInputConfig.previewIntervalMs);
+    ui->continuousInspectionIntervalSpinBox->setValue(m_controller->continuousInspectionIntervalMs());
     ui->stageValueLabel->setText(m_controller->projectStage());
     ui->configPathValueLabel->setText(m_controller->configFilePath());
 
@@ -560,8 +594,17 @@ void MainWindow::syncFromController()
         ui->statusValueLabel->setText(m_controller->statusMessage());
     }
 
+    if (loadedFileOutOfSync) {
+        m_currentImagePath.clear();
+        m_sourceImageView->clearImage();
+        m_resultImageView->clearImage();
+        ui->resultStateValueLabel->setText(QStringLiteral("--"));
+        ui->defectCountValueLabel->setText(QStringLiteral("--"));
+        ui->processTimeValueLabel->setText(QStringLiteral("--"));
+    }
+
     updateInputSourceUi();
-    onDetectionRunningChanged(m_controller->isDetectionRunning());
+    onInspectionRunningChanged(m_controller->isInspectionRunning());
     syncCaptureState();
     syncTcpState();
 }
@@ -572,16 +615,16 @@ void MainWindow::syncRecentRecords()
     updateRecentRecordsTable(m_controller->recentRecords());
 }
 
-VisionParam MainWindow::collectVisionParam() const
+Recipe MainWindow::collectRecipe() const
 {
-    VisionParam param = m_controller->visionParam();
+    Recipe param = m_controller->recipe();
     param.threshold = ui->thresholdSpinBox->value();
     param.minArea = ui->minAreaSpinBox->value();
     param.maxArea = ui->maxAreaSpinBox->value();
     param.enableMorphology = ui->morphologyCheckBox->isChecked();
     param.roi = collectRoi();
     const QString imageSavePath = ui->imageSavePathLineEdit->text().trimmed();
-    param.imageSavePath = imageSavePath.isEmpty() ? VisionParam{}.imageSavePath : imageSavePath;
+    param.imageSavePath = imageSavePath.isEmpty() ? Recipe{}.imageSavePath : imageSavePath;
     return param;
 }
 
@@ -615,6 +658,18 @@ InputSourceConfig MainWindow::collectInputSourceConfig() const
     return config;
 }
 
+InputSourceConfig MainWindow::displayInputSourceConfig() const
+{
+    const CaptureStatusSnapshot &status = m_controller->captureStatus();
+    if (status.opened
+        || status.state == CaptureState::Opening
+        || status.state == CaptureState::Closing) {
+        return status.source;
+    }
+
+    return m_controller->inputSourceConfig();
+}
+
 QRect MainWindow::collectRoi() const
 {
     const int width = ui->roiWidthSpinBox->value();
@@ -629,17 +684,8 @@ QRect MainWindow::collectRoi() const
 void MainWindow::displayRecordDetails(const InspectionRecord &record)
 {
     // 记录详情展示：加载历史原图/结果图并更新结果摘要区域。
-    ui->currentImageValueLabel->setText(record.imagePath);
-    ui->resultStateValueLabel->setText(utils::boolToResultText(record.isOk));
-    ui->defectCountValueLabel->setText(QString::number(record.defectCount));
-    ui->processTimeValueLabel->setText(QStringLiteral("%1 ms").arg(record.processTimeMs, 0, 'f', 2));
-
-    m_resultImageView->clearImage();
-
     const QFileInfo imageInfo(record.imagePath);
     if (!imageInfo.exists()) {
-        m_currentImagePath.clear();
-        m_sourceImageView->clearImage();
         m_controller->logManager().warn(
             QStringLiteral("界面"),
             QStringLiteral("历史记录图片不存在：%1").arg(record.imagePath));
@@ -649,14 +695,31 @@ void MainWindow::displayRecordDetails(const InspectionRecord &record)
 
     const QImage image(record.imagePath);
     if (image.isNull()) {
-        m_currentImagePath.clear();
-        m_sourceImageView->clearImage();
         m_controller->logManager().warn(
             QStringLiteral("界面"),
             QStringLiteral("历史记录图片无法加载：%1").arg(record.imagePath));
         statusBar()->showMessage(tr("历史记录图片无法加载"), 3000);
         return;
     }
+
+    InputSourceConfig inputConfig = m_controller->inputSourceConfig();
+    inputConfig.type = InputSourceType::FileImage;
+    inputConfig.sourcePath = record.imagePath;
+    inputConfig.sourceName = QFileInfo(record.imagePath).fileName();
+    {
+        const QSignalBlocker typeBlocker(ui->inputSourceTypeComboBox);
+        ui->inputSourceTypeComboBox->setCurrentIndex(static_cast<int>(InputSourceType::FileImage));
+    }
+    m_controller->setInputSourceConfig(inputConfig);
+    ui->inputSourcePathLineEdit->setText(record.imagePath);
+    updateInputSourceUi();
+
+    ui->currentImageValueLabel->setText(record.imagePath);
+    ui->resultStateValueLabel->setText(utils::boolToResultText(record.isOk));
+    ui->defectCountValueLabel->setText(QString::number(record.defectCount));
+    ui->processTimeValueLabel->setText(QStringLiteral("%1 ms").arg(record.processTimeMs, 0, 'f', 2));
+
+    m_resultImageView->clearImage();
 
     m_currentImagePath = record.imagePath;
     m_sourceImageView->setImage(image);
@@ -681,6 +744,7 @@ void MainWindow::displayRecordDetails(const InspectionRecord &record)
         QStringLiteral("界面"),
         QStringLiteral("已切换到历史记录：%1").arg(record.imagePath));
     statusBar()->showMessage(tr("已加载历史记录原图"), 3000);
+    syncCaptureState();
 }
 
 void MainWindow::refreshLogView()
@@ -791,7 +855,7 @@ void MainWindow::updateRoiSummary()
 void MainWindow::updateInputSourceUi()
 {
     // 输入源相关控件显隐统一在这里维护，避免散落在多个槽函数里。
-    const InputSourceConfig config = m_controller->inputSourceConfig();
+    const InputSourceConfig config = displayInputSourceConfig();
     const bool isFileMode = config.type == InputSourceType::FileImage;
     const bool isCameraMode = config.type == InputSourceType::Camera;
     const bool isVideoMode = config.type == InputSourceType::VideoFile;
@@ -818,8 +882,8 @@ void MainWindow::updateInputSourceUi()
     ui->importImageButton->setText(
         config.type == InputSourceType::VideoFile ? QStringLiteral("选择视频文件")
                                                   : QStringLiteral("选择图片文件"));
-    ui->startDetectionButton->setText(
-        isFileMode ? QStringLiteral("开始检测") : QStringLiteral("检测当前帧"));
+    ui->startInspectionButton->setText(
+        isFileMode ? QStringLiteral("开始巡检") : QStringLiteral("巡检当前帧"));
 }
 
 void MainWindow::bindSignals()
@@ -841,20 +905,20 @@ void MainWindow::bindSignals()
     connect(ui->startPreviewButton, &QPushButton::clicked, this, &MainWindow::onStartPreviewClicked);
     connect(ui->stopPreviewButton, &QPushButton::clicked, this, &MainWindow::onStopPreviewClicked);
     connect(
-        ui->startContinuousDetectionButton,
+        ui->startContinuousInspectionButton,
         &QPushButton::clicked,
         this,
-        &MainWindow::onStartContinuousDetectionClicked);
+        &MainWindow::onStartContinuousInspectionClicked);
     connect(
-        ui->stopContinuousDetectionButton,
+        ui->stopContinuousInspectionButton,
         &QPushButton::clicked,
         this,
-        &MainWindow::onStopContinuousDetectionClicked);
-    connect(ui->startDetectionButton, &QPushButton::clicked, this, &MainWindow::onStartDetectionClicked);
-    connect(ui->stopDetectionButton, &QPushButton::clicked, this, &MainWindow::onStopDetectionClicked);
-    connect(ui->loadParamButton, &QPushButton::clicked, this, &MainWindow::onLoadParamClicked);
-    connect(ui->saveParamButton, &QPushButton::clicked, this, &MainWindow::onSaveParamClicked);
-    connect(ui->resetParamButton, &QPushButton::clicked, this, &MainWindow::onResetParamClicked);
+        &MainWindow::onStopContinuousInspectionClicked);
+    connect(ui->startInspectionButton, &QPushButton::clicked, this, &MainWindow::onStartInspectionClicked);
+    connect(ui->stopInspectionButton, &QPushButton::clicked, this, &MainWindow::onStopInspectionClicked);
+    connect(ui->loadConfigButton, &QPushButton::clicked, this, &MainWindow::onLoadConfigClicked);
+    connect(ui->saveConfigButton, &QPushButton::clicked, this, &MainWindow::onSaveConfigClicked);
+    connect(ui->resetConfigButton, &QPushButton::clicked, this, &MainWindow::onResetConfigClicked);
     connect(ui->tcpConnectButton, &QPushButton::clicked, this, &MainWindow::onTcpConnectClicked);
     connect(ui->exportRecordsButton, &QPushButton::clicked, this, &MainWindow::onExportRecordsClicked);
     connect(
@@ -908,24 +972,25 @@ void MainWindow::bindSignals()
     connect(&m_controller->logManager(), &LogManager::uiLogGenerated, this, &MainWindow::onUiLogGenerated);
 
     // AppController -> MainWindow：检测、采集、配置与通信状态回调。
-    connect(m_controller, &AppController::detectionStarted, this, &MainWindow::onDetectionStarted);
-    connect(m_controller, &AppController::detectionFinished, this, &MainWindow::onDetectionFinished);
-    connect(m_controller, &AppController::detectionFailed, this, &MainWindow::onDetectionFailed);
-    connect(m_controller, &AppController::detectionCanceled, this, &MainWindow::onDetectionCanceled);
+    connect(m_controller, &AppController::inspectionStarted, this, &MainWindow::onInspectionStarted);
+    connect(m_controller, &AppController::inspectionFinished, this, &MainWindow::onInspectionFinished);
+    connect(m_controller, &AppController::inspectionFailed, this, &MainWindow::onInspectionFailed);
+    connect(m_controller, &AppController::inspectionCanceled, this, &MainWindow::onInspectionCanceled);
     connect(
         m_controller,
-        &AppController::detectionRunningChanged,
+        &AppController::inspectionRunningChanged,
         this,
-        &MainWindow::onDetectionRunningChanged);
+        &MainWindow::onInspectionRunningChanged);
     connect(m_controller, &AppController::statusChanged, this, &MainWindow::onControllerStatusChanged);
-    connect(m_controller, &AppController::visionParamChanged, this, &MainWindow::syncFromController);
+    connect(m_controller, &AppController::recipeChanged, this, &MainWindow::syncFromController);
     connect(m_controller, &AppController::deviceConfigChanged, this, &MainWindow::syncFromController);
     connect(m_controller, &AppController::inputSourceConfigChanged, this, &MainWindow::syncFromController);
     connect(m_controller, &AppController::captureStatusChanged, this, &MainWindow::onCaptureStatusChanged);
     connect(m_controller, &AppController::previewFrameUpdated, this, &MainWindow::onPreviewFrameUpdated);
     connect(m_controller, &AppController::recordsChanged, this, &MainWindow::syncRecentRecords);
     connect(m_controller, &AppController::tcpStateChanged, this, &MainWindow::syncTcpState);
-    connect(m_controller, &AppController::continuousDetectionStateChanged, this, [this](bool) {
+    connect(m_controller, &AppController::continuousInspectionStateChanged, this, [this](bool) {
+        onInspectionRunningChanged(m_controller->isInspectionRunning());
         syncCaptureState();
     });
 }
@@ -942,7 +1007,7 @@ void MainWindow::setupImageViews()
     auto *resultLayout = new QVBoxLayout(ui->resultImageHost);
     resultLayout->setContentsMargins(0, 0, 0, 0);
     m_resultImageView = new ImageViewWidget(ui->resultImageHost);
-    m_resultImageView->setPlaceholderText(QStringLiteral("等待检测结果图"));
+    m_resultImageView->setPlaceholderText(QStringLiteral("等待巡检结果图"));
     resultLayout->addWidget(m_resultImageView);
 }
 
@@ -972,10 +1037,10 @@ void MainWindow::setupUiState()
     ui->previewIntervalSpinBox->setMinimum(10);
     ui->previewIntervalSpinBox->setMaximum(1000);
     ui->previewIntervalSpinBox->setSuffix(QStringLiteral(" ms"));
-    ui->continuousDetectionIntervalSpinBox->setMinimum(100);
-    ui->continuousDetectionIntervalSpinBox->setMaximum(5000);
-    ui->continuousDetectionIntervalSpinBox->setSingleStep(100);
-    ui->continuousDetectionIntervalSpinBox->setSuffix(QStringLiteral(" ms"));
+    ui->continuousInspectionIntervalSpinBox->setMinimum(100);
+    ui->continuousInspectionIntervalSpinBox->setMaximum(5000);
+    ui->continuousInspectionIntervalSpinBox->setSingleStep(100);
+    ui->continuousInspectionIntervalSpinBox->setSuffix(QStringLiteral(" ms"));
     ui->logLevelFilterComboBox->addItems(
         QStringList{QStringLiteral("全部"),
                     QStringLiteral("DEBUG"),
@@ -1012,7 +1077,7 @@ void MainWindow::setupUiState()
     statusBar()->showMessage(tr("系统已启动"), 3000);
     updateRoiSummary();
     updateInputSourceUi();
-    onDetectionRunningChanged(false);
+    onInspectionRunningChanged(false);
     syncCaptureState();
     syncTcpState();
 }
@@ -1020,40 +1085,46 @@ void MainWindow::setupUiState()
 void MainWindow::syncCaptureState()
 {
     // 采集态同步：根据输入模式、预览态、检测态统一计算按钮可用性。
-    const InputSourceConfig config = m_controller->inputSourceConfig();
     const CaptureStatusSnapshot &status = m_controller->captureStatus();
+    const InputSourceConfig config = displayInputSourceConfig();
     const bool isFileMode = config.type == InputSourceType::FileImage;
-    const bool isRunning = m_controller->isDetectionRunning();
-    const bool cancelRequested = m_controller->isDetectionCancelRequested();
+    const bool isRunning = m_controller->isInspectionRunning();
+    const bool cancelRequested = m_controller->isInspectionCancelRequested();
     const bool previewing = status.state == CaptureState::Previewing;
-    const bool continuousEnabled = m_controller->isContinuousDetectionEnabled();
+    const bool continuousEnabled = m_controller->isContinuousInspectionEnabled();
+    const bool captureTransitioning =
+        status.state == CaptureState::Opening || status.state == CaptureState::Closing;
+    const bool sourceControlsLocked =
+        isRunning || cancelRequested || continuousEnabled || captureTransitioning;
+    const bool allowHistoryReview = !sourceControlsLocked && !status.opened;
 
-    ui->importImageButton->setEnabled(!isRunning && !cancelRequested && !m_controller->captureStatus().opened);
-    ui->browseInputSourceButton->setEnabled(!isRunning && !cancelRequested && !status.opened);
-    ui->inputSourceTypeComboBox->setEnabled(!isRunning && !cancelRequested && !status.opened);
-    ui->inputSourcePathLineEdit->setEnabled(!isRunning && !cancelRequested && !status.opened);
-    ui->cameraDeviceSpinBox->setEnabled(!isRunning && !cancelRequested && !status.opened);
-    ui->previewIntervalSpinBox->setEnabled(!isRunning && !cancelRequested && !status.opened);
-    ui->continuousDetectionIntervalSpinBox->setEnabled(!isRunning && !cancelRequested && !continuousEnabled);
-    ui->openInputSourceButton->setEnabled(!isRunning && !status.opened && status.state != CaptureState::Opening);
-    ui->closeInputSourceButton->setEnabled(!isRunning && (status.opened || status.state == CaptureState::Error));
-    ui->startPreviewButton->setEnabled(!isRunning && status.opened && !previewing);
-    ui->stopPreviewButton->setEnabled(!isRunning && previewing);
-    ui->startContinuousDetectionButton->setEnabled(
+    ui->importImageButton->setEnabled(!sourceControlsLocked && !m_controller->captureStatus().opened);
+    ui->browseInputSourceButton->setEnabled(!sourceControlsLocked && !status.opened);
+    ui->inputSourceTypeComboBox->setEnabled(!sourceControlsLocked && !status.opened);
+    ui->inputSourcePathLineEdit->setEnabled(!sourceControlsLocked && !status.opened);
+    ui->cameraDeviceSpinBox->setEnabled(!sourceControlsLocked && !status.opened);
+    ui->previewIntervalSpinBox->setEnabled(!sourceControlsLocked && !status.opened);
+    ui->continuousInspectionIntervalSpinBox->setEnabled(!isRunning && !cancelRequested && !continuousEnabled);
+    ui->openInputSourceButton->setEnabled(!sourceControlsLocked && !status.opened && status.state != CaptureState::Opening);
+    ui->closeInputSourceButton->setEnabled(!sourceControlsLocked && (status.opened || status.state == CaptureState::Error));
+    ui->startPreviewButton->setEnabled(!sourceControlsLocked && status.opened && !previewing);
+    ui->stopPreviewButton->setEnabled(!sourceControlsLocked && previewing);
+    ui->startContinuousInspectionButton->setEnabled(
         !isRunning
         && !continuousEnabled
         && !isFileMode
         && previewing
         && m_controller->hasLatestFrame());
-    ui->stopContinuousDetectionButton->setEnabled(continuousEnabled);
+    ui->stopContinuousInspectionButton->setEnabled(continuousEnabled);
+    ui->recentRecordsTableWidget->setEnabled(allowHistoryReview);
 
     if (isFileMode) {
-        ui->startDetectionButton->setEnabled(
-            !isRunning
+        ui->startInspectionButton->setEnabled(
+            !sourceControlsLocked
             && (!m_currentImagePath.isEmpty() || !ui->inputSourcePathLineEdit->text().trimmed().isEmpty()));
     } else {
-        ui->startDetectionButton->setEnabled(
-            !isRunning && status.state == CaptureState::Previewing && m_controller->hasLatestFrame());
+        ui->startInspectionButton->setEnabled(
+            !sourceControlsLocked && status.state == CaptureState::Previewing && m_controller->hasLatestFrame());
         if (!m_controller->hasLatestFrame()) {
             ui->currentImageValueLabel->setText(status.statusText.isEmpty()
                                                     ? QStringLiteral("等待输入源帧")
@@ -1065,9 +1136,27 @@ void MainWindow::syncCaptureState()
 void MainWindow::syncTcpState()
 {
     // TCP 状态展示保持轻量：只同步状态文本和连接按钮文案。
-    ui->tcpStatusValueLabel->setText(m_controller->tcpStatusText());
-    ui->tcpConnectButton->setText(m_controller->isTcpConnected() ? QStringLiteral("断开连接")
-                                                                  : QStringLiteral("连接 TCP"));
+    const QString statusText = m_controller->tcpStatusText();
+    const bool tcpPending = m_controller->isTcpOperationPending();
+    const bool detectionLocksTcp =
+        m_controller->isInspectionRunning() || m_controller->isContinuousInspectionEnabled();
+
+    ui->tcpStatusValueLabel->setText(statusText);
+    if (tcpPending) {
+        if (statusText.startsWith(QStringLiteral("连接中"))) {
+            ui->tcpConnectButton->setText(QStringLiteral("连接中..."));
+        } else if (statusText.startsWith(QStringLiteral("断开中"))) {
+            ui->tcpConnectButton->setText(QStringLiteral("断开中..."));
+        } else {
+            ui->tcpConnectButton->setText(QStringLiteral("处理中..."));
+        }
+    } else {
+        ui->tcpConnectButton->setText(m_controller->isTcpConnected() ? QStringLiteral("断开连接")
+                                                                      : QStringLiteral("连接 TCP"));
+    }
+    ui->tcpConnectButton->setEnabled(!detectionLocksTcp && !tcpPending);
+    ui->tcpIpLineEdit->setEnabled(!detectionLocksTcp && !tcpPending);
+    ui->tcpPortSpinBox->setEnabled(!detectionLocksTcp && !tcpPending);
 }
 
 void MainWindow::onLogFilterChanged()

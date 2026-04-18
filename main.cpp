@@ -1,7 +1,7 @@
 #include <QApplication>
 
-#include "app/appcontroller.h"
-#include "common/constants.h"
+#include "application/controllers/appcontroller.h"
+#include "common/config/constants.h"
 #include "ui/mainwindow.h"
 
 int main(int argc, char *argv[])

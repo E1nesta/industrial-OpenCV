@@ -1,17 +1,18 @@
 #include <QtTest>
 
+#include <QDateTime>
 #include <QFileInfo>
 #include <QTemporaryDir>
 
 #include <opencv2/imgproc.hpp>
 
-#include "storage/inspectionpersistenceworker.h"
+#include "infrastructure/storage/inspectionpersistenceworker.h"
 
 namespace
 {
-DetectionOutput makeOutput(const QString &imageSavePath)
+InspectionOutput makeOutput(const QString &imageSavePath)
 {
-    DetectionOutput output;
+    InspectionOutput output;
     output.request.inspectionId = QStringLiteral("inspection-persist-001");
     output.request.frame.meta.captureId = QStringLiteral("capture-persist-001");
     output.request.frame.meta.sourceType = InputSourceType::VideoFile;
@@ -19,7 +20,7 @@ DetectionOutput makeOutput(const QString &imageSavePath)
     output.request.frame.meta.sourceName = QStringLiteral("sample.mp4");
     output.request.frame.meta.frameIndex = 7;
     output.request.frame.meta.capturedAt = QDateTime::currentDateTime();
-    output.request.visionParam.imageSavePath = imageSavePath;
+    output.request.recipe.imageSavePath = imageSavePath;
     output.request.frame.image = cv::Mat(720, 1280, CV_8UC3, cv::Scalar(240, 240, 240));
 
     output.result.inspectionId = output.request.inspectionId;

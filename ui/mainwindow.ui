@@ -11,7 +11,7 @@
    </rect>
   </property>
   <property name="windowTitle">
-   <string>视觉检测上位机系统</string>
+   <string>机器视觉巡检上位机</string>
   </property>
   <widget class="QWidget" name="centralwidget">
    <layout class="QVBoxLayout" name="mainLayout">
@@ -68,14 +68,14 @@
             <item row="0" column="0">
              <widget class="QLabel" name="stageLabel">
               <property name="text">
-               <string>阶段</string>
+               <string>主线</string>
               </property>
              </widget>
             </item>
             <item row="0" column="1">
              <widget class="QLabel" name="stageValueLabel">
               <property name="text">
-               <string>阶段 4 / 帧驱动采集主线（预览 + 单帧检测）</string>
+               <string>机器视觉巡检闭环（输入、预览、巡检、留痕、TCP 输出）</string>
               </property>
               <property name="wordWrap">
                <bool>true</bool>
@@ -254,44 +254,44 @@
          <item>
           <widget class="QGroupBox" name="actionGroupBox">
            <property name="title">
-            <string>检测操作</string>
+            <string>巡检操作</string>
            </property>
            <layout class="QVBoxLayout" name="actionLayout">
             <item>
-             <widget class="QPushButton" name="startDetectionButton">
+             <widget class="QPushButton" name="startInspectionButton">
               <property name="text">
-               <string>开始检测</string>
+               <string>开始巡检</string>
               </property>
              </widget>
             </item>
             <item>
-             <widget class="QPushButton" name="stopDetectionButton">
+             <widget class="QPushButton" name="stopInspectionButton">
               <property name="text">
-               <string>停止检测</string>
+               <string>停止巡检</string>
               </property>
              </widget>
             </item>
             <item>
-             <widget class="QLabel" name="continuousDetectionIntervalLabel">
+             <widget class="QLabel" name="continuousInspectionIntervalLabel">
               <property name="text">
-               <string>连续检测间隔</string>
+               <string>连续巡检间隔</string>
               </property>
              </widget>
             </item>
             <item>
-             <widget class="QSpinBox" name="continuousDetectionIntervalSpinBox"/>
+             <widget class="QSpinBox" name="continuousInspectionIntervalSpinBox"/>
             </item>
             <item>
-             <widget class="QPushButton" name="startContinuousDetectionButton">
+             <widget class="QPushButton" name="startContinuousInspectionButton">
               <property name="text">
-               <string>开始连续检测</string>
+               <string>开始连续巡检</string>
               </property>
              </widget>
             </item>
             <item>
-             <widget class="QPushButton" name="stopContinuousDetectionButton">
+             <widget class="QPushButton" name="stopContinuousInspectionButton">
               <property name="text">
-               <string>停止连续检测</string>
+               <string>停止连续巡检</string>
               </property>
              </widget>
             </item>
@@ -352,21 +352,21 @@
            </property>
            <layout class="QVBoxLayout" name="configLayout">
             <item>
-             <widget class="QPushButton" name="loadParamButton">
+             <widget class="QPushButton" name="loadConfigButton">
               <property name="text">
-               <string>加载参数</string>
+               <string>加载配置</string>
               </property>
              </widget>
             </item>
             <item>
-             <widget class="QPushButton" name="saveParamButton">
+             <widget class="QPushButton" name="saveConfigButton">
               <property name="text">
-               <string>保存参数</string>
+               <string>保存配置</string>
               </property>
              </widget>
             </item>
             <item>
-             <widget class="QPushButton" name="resetParamButton">
+             <widget class="QPushButton" name="resetConfigButton">
               <property name="text">
                <string>重置默认值</string>
               </property>
@@ -455,7 +455,7 @@
              <number>10</number>
             </property>
             <item>
-            <widget class="QGroupBox" name="paramGroupBox">
+            <widget class="QGroupBox" name="recipeGroupBox">
              <property name="minimumSize">
               <size>
                <width>0</width>
@@ -469,9 +469,9 @@
               </size>
              </property>
              <property name="title">
-              <string>视觉参数</string>
+              <string>检测配方</string>
              </property>
-              <layout class="QFormLayout" name="paramFormLayout">
+              <layout class="QFormLayout" name="recipeFormLayout">
               <item row="0" column="0">
                <widget class="QLabel" name="thresholdLabel">
                 <property name="text">
@@ -656,7 +656,7 @@
               </size>
              </property>
              <property name="title">
-              <string>检测摘要</string>
+              <string>巡检摘要</string>
              </property>
               <layout class="QFormLayout" name="summaryFormLayout">
               <item row="0" column="0">
@@ -679,7 +679,7 @@
               <item row="1" column="0">
                <widget class="QLabel" name="resultStateLabel">
                 <property name="text">
-                 <string>检测结果</string>
+                 <string>判定结果</string>
                 </property>
                </widget>
               </item>

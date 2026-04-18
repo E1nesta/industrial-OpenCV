@@ -2,7 +2,7 @@
 
 #include <opencv2/imgproc.hpp>
 
-#include "common/utils.h"
+#include "common/utils/utils.h"
 
 class UtilsTests : public QObject
 {
@@ -13,7 +13,7 @@ private slots:
     void convertsQImageToBgrMat();
     void convertsQImageToBgrMatWithExpectedChannelOrder();
     void buildsPreviewImageWithDownsampleAndRoi();
-    void drawsDetectionOverlay();
+    void drawsInspectionOverlay();
 };
 
 void UtilsTests::convertsBgrMatToQImage()
@@ -67,7 +67,7 @@ void UtilsTests::buildsPreviewImageWithDownsampleAndRoi()
 {
     cv::Mat image(1920, 1080, CV_8UC3, cv::Scalar(32, 64, 96));
 
-    VisionParam param;
+    Recipe param;
     param.roi = QRect(100, 200, 240, 300);
 
     const QImage preview = utils::buildPreviewImage(image, param, 960);
@@ -76,16 +76,16 @@ void UtilsTests::buildsPreviewImageWithDownsampleAndRoi()
     QVERIFY(std::max(preview.width(), preview.height()) <= 960);
 }
 
-void UtilsTests::drawsDetectionOverlay()
+void UtilsTests::drawsInspectionOverlay()
 {
     cv::Mat image(720, 1280, CV_8UC3, cv::Scalar(0, 0, 0));
-    DetectResult result;
+    InspectionResult result;
     result.isOk = false;
     result.defectCount = 1;
     result.processTimeMs = 12.5;
     result.defectRects.append(QRect(100, 120, 200, 160));
 
-    const cv::Mat annotated = utils::drawDetectionOverlay(image, result);
+    const cv::Mat annotated = utils::drawInspectionOverlay(image, result);
 
     QVERIFY(!annotated.empty());
     QCOMPARE(annotated.cols, image.cols);

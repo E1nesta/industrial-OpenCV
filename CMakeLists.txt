@@ -187,41 +187,43 @@ endif()
 
 set(_vision_opencv_runtime_search_roots)
 set(_vision_opencv_runtime_search_mode "vcpkg-standard")
+set(_vision_runtime_bin_suffixes)
+
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    list(APPEND _vision_runtime_bin_suffixes "debug/bin")
+elseif(CMAKE_BUILD_TYPE STREQUAL "Release"
+        OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo"
+        OR CMAKE_BUILD_TYPE STREQUAL "MinSizeRel")
+    list(APPEND _vision_runtime_bin_suffixes "bin")
+else()
+    list(APPEND _vision_runtime_bin_suffixes "bin" "debug/bin")
+endif()
 
 if(VISION_VCPKG_ROOT AND VCPKG_TARGET_TRIPLET)
     set(_vision_vcpkg_installed_root "${VISION_VCPKG_ROOT}/installed/${VCPKG_TARGET_TRIPLET}")
-    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    foreach(_vision_runtime_suffix IN LISTS _vision_runtime_bin_suffixes)
         list(APPEND _vision_opencv_runtime_search_roots
-            "${_vision_vcpkg_installed_root}/debug/bin"
-            "${_vision_vcpkg_installed_root}/bin"
+            "${_vision_vcpkg_installed_root}/${_vision_runtime_suffix}"
         )
-    elseif(CMAKE_BUILD_TYPE STREQUAL "Release")
-        list(APPEND _vision_opencv_runtime_search_roots
-            "${_vision_vcpkg_installed_root}/bin"
-            "${_vision_vcpkg_installed_root}/debug/bin"
-        )
-    else()
-        list(APPEND _vision_opencv_runtime_search_roots
-            "${_vision_vcpkg_installed_root}/bin"
-            "${_vision_vcpkg_installed_root}/debug/bin"
-        )
-    endif()
+    endforeach()
 endif()
 
 if(OpenCV_ROOT AND EXISTS "${OpenCV_ROOT}")
     set(_vision_opencv_runtime_search_mode "explicit-root")
-    list(APPEND _vision_opencv_runtime_search_roots
-        "${OpenCV_ROOT}/bin"
-        "${OpenCV_ROOT}/debug/bin"
-    )
+    foreach(_vision_runtime_suffix IN LISTS _vision_runtime_bin_suffixes)
+        list(APPEND _vision_opencv_runtime_search_roots
+            "${OpenCV_ROOT}/${_vision_runtime_suffix}"
+        )
+    endforeach()
 elseif(OpenCV_DIR AND EXISTS "${OpenCV_DIR}")
     get_filename_component(_vision_opencv_prefix "${OpenCV_DIR}/../.." ABSOLUTE)
     if(EXISTS "${_vision_opencv_prefix}")
         set(_vision_opencv_runtime_search_mode "explicit-dir")
-        list(APPEND _vision_opencv_runtime_search_roots
-            "${_vision_opencv_prefix}/bin"
-            "${_vision_opencv_prefix}/debug/bin"
-        )
+        foreach(_vision_runtime_suffix IN LISTS _vision_runtime_bin_suffixes)
+            list(APPEND _vision_opencv_runtime_search_roots
+                "${_vision_opencv_prefix}/${_vision_runtime_suffix}"
+            )
+        endforeach()
     endif()
 endif()
 
@@ -321,55 +323,60 @@ endif()
 
 set(PROJECT_SOURCES
     main.cpp
-    app/appcontroller.h
-    app/appcontroller.cpp
-    camera/icamera.h
-    camera/captureworker.h
-    camera/captureworker.cpp
-    camera/videocapturesource.h
-    camera/videocapturesource.cpp
-    camera/virtualcamera.h
-    camera/virtualcamera.cpp
-    camera/cameramanager.h
-    camera/cameramanager.cpp
-    communication/tcpmanager.h
-    communication/tcpmanager.cpp
-    communication/tcpworker.h
-    communication/tcpworker.cpp
-    common/constants.h
-    common/utils.h
-    common/utils.cpp
-    logger/logevent.h
-    logger/logmanager.h
-    logger/logmanager.cpp
-    logger/logworker.h
-    logger/logworker.cpp
-    models/capturedframe.h
-    models/detectionoutput.h
-    models/detectionrequest.h
-    models/deviceconfig.h
-    models/detectresult.h
-    models/inputsource.h
-    models/inspectionrecord.h
-    models/persistenceresult.h
-    models/visionparam.h
-    storage/configmanager.h
-    storage/configmanager.cpp
-    storage/databasemanager.h
-    storage/databasemanager.cpp
-    storage/inspectionpersistenceworker.h
-    storage/inspectionpersistenceworker.cpp
-    storage/recordmanager.h
-    storage/recordmanager.cpp
+    application/controllers/appcontroller.h
+    application/controllers/appcontroller.cpp
+    application/orchestrators/inspectionorchestrator.h
+    application/orchestrators/inspectionorchestrator.cpp
+    application/orchestrators/resultdispatcher.h
+    application/orchestrators/resultdispatcher.cpp
+    application/state/inspectionsessionstate.h
+    common/config/constants.h
+    common/logging/logevent.h
+    common/logging/logmanager.h
+    common/logging/logmanager.cpp
+    common/logging/logworker.h
+    common/logging/logworker.cpp
+    common/utils/utils.h
+    common/utils/utils.cpp
+    domain/entities/capturedframe.h
+    domain/entities/deviceconfig.h
+    domain/entities/inputsource.h
+    domain/entities/inspectionoutput.h
+    domain/entities/inspectionrecord.h
+    domain/entities/inspectionresult.h
+    domain/entities/inspectiontask.h
+    domain/entities/persistenceresult.h
+    domain/entities/recipe.h
+    domain/services/imageprocessor.h
+    domain/services/imageprocessor.cpp
+    infrastructure/capture/icamera.h
+    infrastructure/capture/captureworker.h
+    infrastructure/capture/captureworker.cpp
+    infrastructure/capture/videocapturesource.h
+    infrastructure/capture/videocapturesource.cpp
+    infrastructure/capture/virtualcamera.h
+    infrastructure/capture/virtualcamera.cpp
+    infrastructure/capture/cameramanager.h
+    infrastructure/capture/cameramanager.cpp
+    infrastructure/communication/tcpmanager.h
+    infrastructure/communication/tcpmanager.cpp
+    infrastructure/communication/tcpworker.h
+    infrastructure/communication/tcpworker.cpp
+    infrastructure/config/configmanager.h
+    infrastructure/config/configmanager.cpp
+    infrastructure/storage/databasemanager.h
+    infrastructure/storage/databasemanager.cpp
+    infrastructure/storage/inspectionpersistenceworker.h
+    infrastructure/storage/inspectionpersistenceworker.cpp
+    infrastructure/storage/recordmanager.h
+    infrastructure/storage/recordmanager.cpp
+    infrastructure/vision/inspectionworker.h
+    infrastructure/vision/inspectionworker.cpp
     ui/imageviewwidget.h
     ui/imageviewwidget.cpp
     ui/mainwindow.h
     ui/mainwindow.cpp
     ui/mainwindow.ui
-    vision/detectionworker.h
-    vision/detectionworker.cpp
-    vision/imageprocessor.h
-    vision/imageprocessor.cpp
 )
 
 if(QT_VERSION_MAJOR GREATER_EQUAL 6)
@@ -470,18 +477,18 @@ if(BUILD_TESTING)
 
         add_executable(VisionImageProcessorTests
             tests/imageprocessor_tests.cpp
-            common/constants.h
-            logger/logevent.h
-            logger/logmanager.h
-            logger/logmanager.cpp
-            logger/logworker.h
-            logger/logworker.cpp
-            vision/imageprocessor.h
-            vision/imageprocessor.cpp
-            models/capturedframe.h
-            models/detectresult.h
-            models/inputsource.h
-            models/visionparam.h
+            common/config/constants.h
+            common/logging/logevent.h
+            common/logging/logmanager.h
+            common/logging/logmanager.cpp
+            common/logging/logworker.h
+            common/logging/logworker.cpp
+            domain/entities/capturedframe.h
+            domain/entities/inputsource.h
+            domain/entities/inspectionresult.h
+            domain/entities/recipe.h
+            domain/services/imageprocessor.h
+            domain/services/imageprocessor.cpp
         )
 
         target_include_directories(VisionImageProcessorTests
@@ -500,12 +507,12 @@ if(BUILD_TESTING)
 
         add_executable(VisionUtilsTests
             tests/utils_tests.cpp
-            common/utils.h
-            common/utils.cpp
-            models/capturedframe.h
-            models/detectresult.h
-            models/inputsource.h
-            models/visionparam.h
+            common/utils/utils.h
+            common/utils/utils.cpp
+            domain/entities/capturedframe.h
+            domain/entities/inputsource.h
+            domain/entities/inspectionresult.h
+            domain/entities/recipe.h
         )
 
         target_include_directories(VisionUtilsTests
@@ -524,12 +531,93 @@ if(BUILD_TESTING)
 
         add_executable(VisionConfigManagerTests
             tests/configmanager_tests.cpp
-            common/constants.h
-            models/deviceconfig.h
-            models/inputsource.h
-            models/visionparam.h
-            storage/configmanager.h
-            storage/configmanager.cpp
+            common/config/constants.h
+            domain/entities/deviceconfig.h
+            domain/entities/inputsource.h
+            domain/entities/recipe.h
+            infrastructure/config/configmanager.h
+            infrastructure/config/configmanager.cpp
+        )
+
+        add_executable(VisionInspectionSessionStateTests
+            tests/inspectionsessionstate_tests.cpp
+            application/state/inspectionsessionstate.h
+        )
+
+        add_executable(VisionInspectionOrchestratorTests
+            tests/inspectionorchestrator_tests.cpp
+            application/orchestrators/inspectionorchestrator.h
+            application/orchestrators/inspectionorchestrator.cpp
+            application/state/inspectionsessionstate.h
+            common/utils/utils.h
+            common/utils/utils.cpp
+            domain/entities/capturedframe.h
+            domain/entities/deviceconfig.h
+            domain/entities/inputsource.h
+            domain/entities/inspectiontask.h
+            domain/entities/recipe.h
+        )
+
+        add_executable(VisionResultDispatcherTests
+            tests/resultdispatcher_tests.cpp
+            application/orchestrators/resultdispatcher.h
+            application/orchestrators/resultdispatcher.cpp
+            common/logging/logevent.h
+            common/logging/logmanager.h
+            common/logging/logmanager.cpp
+            common/logging/logworker.h
+            common/logging/logworker.cpp
+            common/utils/utils.h
+            common/utils/utils.cpp
+            domain/entities/capturedframe.h
+            domain/entities/deviceconfig.h
+            domain/entities/inputsource.h
+            domain/entities/inspectionoutput.h
+            domain/entities/inspectionresult.h
+            domain/entities/inspectiontask.h
+            domain/entities/recipe.h
+        )
+
+        add_executable(VisionInspectionWorkerTests
+            tests/inspectionworker_tests.cpp
+            common/logging/logevent.h
+            common/logging/logmanager.h
+            common/logging/logmanager.cpp
+            common/logging/logworker.h
+            common/logging/logworker.cpp
+            common/utils/utils.h
+            common/utils/utils.cpp
+            domain/entities/capturedframe.h
+            domain/entities/inputsource.h
+            domain/entities/inspectionoutput.h
+            domain/entities/inspectionresult.h
+            domain/entities/inspectiontask.h
+            domain/entities/recipe.h
+            domain/services/imageprocessor.h
+            domain/services/imageprocessor.cpp
+            infrastructure/vision/inspectionworker.h
+            infrastructure/vision/inspectionworker.cpp
+        )
+
+        add_executable(VisionInspectionPersistenceTests
+            tests/persistenceworker_tests.cpp
+            common/config/constants.h
+            common/utils/utils.h
+            common/utils/utils.cpp
+            domain/entities/capturedframe.h
+            domain/entities/inputsource.h
+            domain/entities/inspectionoutput.h
+            domain/entities/inspectionrecord.h
+            domain/entities/inspectionresult.h
+            domain/entities/inspectiontask.h
+            domain/entities/persistenceresult.h
+            domain/entities/recipe.h
+            infrastructure/storage/databasemanager.h
+            infrastructure/storage/databasemanager.cpp
+            infrastructure/storage/inspectionpersistenceworker.h
+            infrastructure/storage/inspectionpersistenceworker.cpp
+            infrastructure/storage/recordmanager.h
+            infrastructure/storage/recordmanager.cpp
         )
 
         target_include_directories(VisionConfigManagerTests
@@ -545,13 +633,91 @@ if(BUILD_TESTING)
                 ${OpenCV_LIBS}
         )
 
+        target_include_directories(VisionInspectionSessionStateTests
+            PRIVATE
+                ${CMAKE_CURRENT_SOURCE_DIR}
+        )
+
+        target_link_libraries(VisionInspectionSessionStateTests
+            PRIVATE
+                Qt${QT_VERSION_MAJOR}::Core
+                Qt${QT_VERSION_MAJOR}::Test
+        )
+
+        target_include_directories(VisionInspectionOrchestratorTests
+            PRIVATE
+                ${CMAKE_CURRENT_SOURCE_DIR}
+                ${OpenCV_INCLUDE_DIRS}
+        )
+
+        target_link_libraries(VisionInspectionOrchestratorTests
+            PRIVATE
+                Qt${QT_VERSION_MAJOR}::Core
+                Qt${QT_VERSION_MAJOR}::Gui
+                Qt${QT_VERSION_MAJOR}::Test
+                ${OpenCV_LIBS}
+        )
+
+        target_include_directories(VisionResultDispatcherTests
+            PRIVATE
+                ${CMAKE_CURRENT_SOURCE_DIR}
+                ${OpenCV_INCLUDE_DIRS}
+        )
+
+        target_link_libraries(VisionResultDispatcherTests
+            PRIVATE
+                Qt${QT_VERSION_MAJOR}::Core
+                Qt${QT_VERSION_MAJOR}::Gui
+                Qt${QT_VERSION_MAJOR}::Test
+                ${OpenCV_LIBS}
+        )
+
+        target_include_directories(VisionInspectionWorkerTests
+            PRIVATE
+                ${CMAKE_CURRENT_SOURCE_DIR}
+                ${OpenCV_INCLUDE_DIRS}
+        )
+
+        target_link_libraries(VisionInspectionWorkerTests
+            PRIVATE
+                Qt${QT_VERSION_MAJOR}::Core
+                Qt${QT_VERSION_MAJOR}::Gui
+                Qt${QT_VERSION_MAJOR}::Test
+                ${OpenCV_LIBS}
+        )
+
+        target_include_directories(VisionInspectionPersistenceTests
+            PRIVATE
+                ${CMAKE_CURRENT_SOURCE_DIR}
+                ${OpenCV_INCLUDE_DIRS}
+        )
+
+        target_link_libraries(VisionInspectionPersistenceTests
+            PRIVATE
+                Qt${QT_VERSION_MAJOR}::Core
+                Qt${QT_VERSION_MAJOR}::Gui
+                Qt${QT_VERSION_MAJOR}::Sql
+                Qt${QT_VERSION_MAJOR}::Test
+                ${OpenCV_LIBS}
+        )
+
         add_test(NAME VisionImageProcessorTests COMMAND VisionImageProcessorTests)
         add_test(NAME VisionUtilsTests COMMAND VisionUtilsTests)
         add_test(NAME VisionConfigManagerTests COMMAND VisionConfigManagerTests)
+        add_test(NAME VisionInspectionSessionStateTests COMMAND VisionInspectionSessionStateTests)
+        add_test(NAME VisionInspectionOrchestratorTests COMMAND VisionInspectionOrchestratorTests)
+        add_test(NAME VisionResultDispatcherTests COMMAND VisionResultDispatcherTests)
+        add_test(NAME VisionInspectionWorkerTests COMMAND VisionInspectionWorkerTests)
+        add_test(NAME VisionInspectionPersistenceTests COMMAND VisionInspectionPersistenceTests)
         set_tests_properties(
             VisionImageProcessorTests
             VisionUtilsTests
             VisionConfigManagerTests
+            VisionInspectionSessionStateTests
+            VisionInspectionOrchestratorTests
+            VisionResultDispatcherTests
+            VisionInspectionWorkerTests
+            VisionInspectionPersistenceTests
             PROPERTIES
                 ENVIRONMENT "PATH=${_vision_test_path};$ENV{PATH}"
         )

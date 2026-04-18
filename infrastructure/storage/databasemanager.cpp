@@ -1,3 +1,5 @@
+// 基础设施存储：databasemanager.cpp 负责记录落库与图片归档。
+// 本文件承接巡检结果留痕出口，处理持久化副作用。
 #include "infrastructure/storage/databasemanager.h"
 
 #include <utility>

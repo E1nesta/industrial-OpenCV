@@ -1,3 +1,5 @@
+// 通用日志：logmanager.h 负责日志事件生成、分发与落盘。
+// 本文件为全链路提供可追踪日志能力。
 #pragma once
 
 #include <QObject>

@@ -1,3 +1,5 @@
+// 基础设施视觉：inspectionworker.cpp 负责后台巡检执行任务。
+// 本文件连接任务输入与算法执行，输出统一巡检结果。
 #include "infrastructure/vision/inspectionworker.h"
 
 #include <exception>

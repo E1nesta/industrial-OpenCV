@@ -1,3 +1,5 @@
+// 应用层控制：appcontroller.cpp 负责接收界面请求并协调业务流程。
+// 本文件位于巡检主链路入口，负责状态收敛与结果回推。
 #include "application/controllers/appcontroller.h"
 
 #include <algorithm>

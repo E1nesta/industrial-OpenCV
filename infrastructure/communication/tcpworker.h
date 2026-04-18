@@ -1,3 +1,5 @@
+// 基础设施通信：tcpworker.h 负责外部通信链路与结果上报。
+// 本文件承接巡检结果出口，处理连接、发送与回执流程。
 #pragma once
 
 #include <QObject>

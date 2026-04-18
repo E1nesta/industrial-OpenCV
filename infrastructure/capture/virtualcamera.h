@@ -1,3 +1,5 @@
+// 基础设施采集：virtualcamera.h 负责输入源接入与帧获取。
+// 本文件连接设备输入与应用层任务触发，隔离外设细节。
 #pragma once
 
 #include <QString>

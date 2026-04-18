@@ -1,3 +1,5 @@
+// 表现层：imageviewwidget.cpp 负责界面交互与状态展示。
+// 本文件位于巡检流程展示端，承接用户操作与结果回显。
 #include "ui/imageviewwidget.h"
 
 #include <QPixmap>

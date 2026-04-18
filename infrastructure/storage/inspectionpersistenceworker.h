@@ -1,3 +1,5 @@
+// 基础设施存储：inspectionpersistenceworker.h 负责记录落库与图片归档。
+// 本文件承接巡检结果留痕出口，处理持久化副作用。
 #pragma once
 
 #include <QObject>

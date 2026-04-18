@@ -1,3 +1,5 @@
+// 通用工具：utils.cpp 提供跨模块复用的轻量工具函数。
+// 本文件用于减少重复逻辑并保持通用行为一致。
 #include "common/utils/utils.h"
 
 #include <algorithm>

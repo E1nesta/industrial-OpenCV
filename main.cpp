@@ -1,3 +1,5 @@
+// 程序入口：main.cpp 负责应用初始化与主窗口启动。
+// 本文件连接 Qt 运行时与应用层控制器初始化流程。
 #include <QApplication>
 
 #include "application/controllers/appcontroller.h"

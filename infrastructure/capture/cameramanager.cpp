@@ -1,3 +1,5 @@
+// 基础设施采集：cameramanager.cpp 负责输入源接入与帧获取。
+// 本文件连接设备输入与应用层任务触发，隔离外设细节。
 #include "infrastructure/capture/cameramanager.h"
 
 bool CameraManager::loadLocalImage(const QString &imagePath)

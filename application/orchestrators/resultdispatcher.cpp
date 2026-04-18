@@ -1,3 +1,5 @@
+// 应用层分发实现：统一处理日志、持久化出口、TCP 出口和结果图转换。
+// 本文件负责结果出口整合，不承担 UI 控件更新。
 #include "application/orchestrators/resultdispatcher.h"
 
 #include "common/logging/logmanager.h"
@@ -9,8 +11,10 @@ ResultDispatchOutcome ResultDispatcher::dispatch(
     const std::function<void(const InspectionOutput &)> &persistenceSink,
     const std::function<void(const QString &, bool, const DeviceConfig &)> &tcpSink) const
 {
+    // 输入准备：提取结构化结果，供后续各出口复用。
     const InspectionResult &result = output.result;
 
+    // 阶段 1：记录巡检结论日志，保持主链可追踪。
     if (logManager != nullptr) {
         logManager->info(
             QStringLiteral("检测"),
@@ -31,10 +35,12 @@ ResultDispatchOutcome ResultDispatcher::dispatch(
             false);
     }
 
+    // 阶段 2：把输出分发到持久化链路。
     if (persistenceSink) {
         persistenceSink(output);
     }
 
+    // 阶段 3：按任务配置决定是否分发 TCP 结果。
     if (output.request.shouldSendTcpResult) {
         if (logManager != nullptr) {
             logManager->info(
@@ -53,6 +59,7 @@ ResultDispatchOutcome ResultDispatcher::dispatch(
         }
     }
 
+    // 阶段 4：主线程转换结果图，供 UI 直接显示。
     if (logManager != nullptr) {
         logManager->info(
             QStringLiteral("检测"),
@@ -64,6 +71,7 @@ ResultDispatchOutcome ResultDispatcher::dispatch(
             false);
     }
 
+    // 阶段 5：收敛最终展示输出。
     ResultDispatchOutcome outcome;
     outcome.result = result;
     outcome.resultImage = utils::matToQImage(output.annotatedImage);
@@ -84,5 +92,6 @@ ResultDispatchOutcome ResultDispatcher::dispatch(
             false);
     }
 
+    // 返回统一分发结果，供控制层更新 UI 状态。
     return outcome;
 }

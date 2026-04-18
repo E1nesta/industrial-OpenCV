@@ -1,3 +1,5 @@
+// 基础设施配置：configmanager.cpp 负责配置加载、保存与回填。
+// 本文件连接配置存储与运行态参数，保证配置语义一致。
 #include "infrastructure/config/configmanager.h"
 
 #include <algorithm>

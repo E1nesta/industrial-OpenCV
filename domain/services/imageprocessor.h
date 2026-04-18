@@ -1,3 +1,5 @@
+// 领域服务：imageprocessor.h 负责核心图像处理与业务计算。
+// 本文件处于巡检核心处理阶段，输出结构化业务结果。
 #pragma once
 
 #include <functional>

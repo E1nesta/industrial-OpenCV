@@ -1,213 +1,161 @@
 # industrial-OpenCV
 
-`industrial-OpenCV` 是一个基于 Qt + OpenCV 的工业机器视觉上位机项目，当前项目题材固定为：
+`industrial-OpenCV` 是一个基于 **Qt/C++ + OpenCV** 的工业机器视觉上位机项目，面向 **单工位 AOI 外观检测工站** 场景。项目重点不是单一算法演示，而是围绕工业检测软件的完整业务链路，组织输入源接入、预览取帧、巡检任务、图像处理、结果判定、记录留痕和 TCP 输出。
 
-`单工位 AOI 外观检测工站`
+项目适用方向：
 
-项目围绕输入源接入、预览取帧、检测任务编排、缺陷判定、结果展示、记录留痕与 TCP 输出等完整桌面端视觉业务流程展开。
+- 工业检测上位机
+- AOI 外观检测软件
+- 机器视觉巡检软件
+- 视觉测量与定位软件
+- 检测结果留痕与通信回传终端
 
-项目面向典型工业视觉软件场景，例如：
+## 核心能力
 
-- 外观检测
-- AOI 检测
-- 尺寸测量
-- 定位识别
-- OCR 辅助识别
-- 视觉检测结果回传
+- 支持本地图片单次巡检。
+- 支持视频文件打开、预览和当前帧巡检。
+- 支持摄像头打开、预览和当前帧巡检。
+- 支持连续巡检，避免检测任务堆积。
+- 支持 AOI 缺陷检测结果图显示。
+- 支持 AOI 配方配置，包括 ROI、阈值、面积范围、形态学开关、留痕策略和发送策略。
+- 支持原图 / 结果图归档和检测记录落库。
+- 支持最近记录回看。
+- 支持 TCP 结果输出和回执处理。
 
-本项目重点不在单一算法样例，而在于构建一套清晰、可维护、可继续扩展，并且更贴近真实设备岗位语境的 Qt/C++ AOI 检测工站骨架。
+## 完整检测链路
 
-## 功能特性
-
-当前版本提供以下能力：
-
-- 本地图片单次巡检
-- 视频文件打开与预览
-- 摄像头打开与预览
-- 当前帧巡检
-- 连续巡检
-- AOI 缺陷结果图显示
-- 原图 / 结果图归档
-- 记录持久化保存
-- TCP 结果输出
-- 最近记录回看
-- AOI 配方名、检测项开关、留痕策略与结果发送策略配置
-
-## 系统主流程
-
-项目围绕一条完整的 AOI 工站主链路展开：
-
-`输入源 -> 预览/取帧 -> 检测任务创建 -> 图像处理 -> 缺陷判定 -> UI 展示 -> 图片归档 -> 记录落库 -> TCP 输出`
-
-对应流程如下：
-
-```mermaid
-flowchart TD
-    A["本地图片 / 视频帧 / 摄像头帧"] --> B["AppController"]
-    B --> C["InspectionOrchestrator"]
-    C --> D["InspectionWorker"]
-    D --> E["ImageProcessor"]
-    E --> F["InspectionResult / InspectionOutput"]
-    F --> G["MainWindow 结果展示"]
-    F --> H["InspectionPersistenceWorker 持久化"]
-    F --> I["TcpWorker 结果输出"]
-```
-
-## 架构设计
-
-项目采用分层结构组织代码，按职责分为：
+项目主链路围绕真实 AOI 工站软件展开：
 
 ```text
-application/
-  controllers/
-  orchestrators/
-  state/
-common/
-  config/
-  logging/
-  utils/
-domain/
-  entities/
-  policies/
-  services/
-infrastructure/
-  capture/
-  communication/
-  config/
-  storage/
-  vision/
-tests/
-ui/
+输入源 -> 预览/取帧 -> 巡检任务创建 -> 图像处理 -> 缺陷判定 -> UI 展示 -> 图片归档 -> 记录落库 -> TCP 输出
 ```
 
-### `ui/`
+```mermaid
+flowchart LR
+    A["本地图片 / 视频帧 / 摄像头帧"] --> B["输入源接入"]
+    B --> C["预览 / 取帧"]
+    C --> D["InspectionTask 巡检任务"]
+    D --> E["InspectionWorker 后台执行"]
+    E --> F["ImageProcessor 图像处理"]
+    F --> G["InspectionResult 结构化结果"]
+    G --> H["结果图生成"]
+    H --> I["UI 展示"]
+    H --> J["图片归档 / 记录落库"]
+    H --> K["TCP 结果输出"]
+```
 
-界面层，负责：
+这条链路体现项目的核心价值：图像从输入源进入系统后，会被封装为可追踪的巡检任务，经过算法处理和结果判定，再统一进入展示、留痕和通信出口。
 
-- 用户交互
-- 输入参数录入
-- 图像显示
-- 结果展示
-- 日志过滤与查看
+## 架构分层
 
-### `application/`
+项目采用轻量分层结构，兼顾清晰边界和工程可维护性：
 
-应用编排层，负责：
+```text
+ui/
+application/
+domain/
+infrastructure/
+common/
+tests/
+```
 
-- 接收 UI 请求
-- 创建巡检任务
-- 管理巡检会话状态
-- 分发结果到 UI、存储和通信链路
+```mermaid
+flowchart TB
+    UI["UI<br/>交互 / 显示 / 历史回看"]
+    APP["Application<br/>流程编排 / 状态收敛 / 结果分发"]
+    DOMAIN["Domain<br/>任务 / 配方 / 结果 / 算法"]
+    INFRA["Infrastructure<br/>采集 / 存储 / TCP / 配置 / Worker"]
+    COMMON["Common<br/>日志 / 常量 / 工具"]
 
-### `domain/`
+    UI --> APP
+    APP --> DOMAIN
+    APP --> INFRA
+    INFRA --> DOMAIN
+    APP --> COMMON
+    INFRA --> COMMON
+```
 
-领域层，负责核心业务对象与图像处理逻辑，包括：
-
-- `InspectionTask`
-- `InspectionResult`
-- `InspectionOutput`
-- `Recipe`
-- `CapturedFrame`
-- `ImageProcessor`
-
-### `infrastructure/`
-
-基础设施层，负责具体外部能力接入，包括：
-
-- 输入源采集
-- TCP 通信
-- 配置读写
-- 记录存储
-- 后台巡检 worker
-
-### `common/`
-
-公共基础能力，负责：
-
-- 常量定义
-- 日志能力
-- 通用工具函数
-
-## 核心对象
-
-项目中的关键业务对象包括：
-
-- `InspectionTask`
-  表示一次巡检任务，包含输入图像、来源信息、配方、任务编号等上下文。
-
-- `InspectionResult`
-  表示一次检测的最终结果，包含 OK/NG、缺陷数量、缺陷明细、耗时、失败原因和摘要信息。
-
-- `DefectItem`
-  表示单个 AOI 缺陷明细，包含缺陷框、面积、类别与缺陷说明。
-
-- `InspectionOutput`
-  表示巡检完成后的统一出口对象，用于 UI 展示、持久化和 TCP 输出。
-
-- `Recipe`
-  表示 AOI 配方配置，例如配方名、检测项开关、阈值、面积范围、ROI、形态学开关、图片留痕策略和结果发送策略。
-
-- `InspectionSessionState`
-  表示巡检运行状态，包括运行中、取消中、连续巡检开关、活动任务 ID 等。
-
-- `InspectionOrchestrator`
-  负责把文件路径或采集帧转换成标准巡检任务，并进行连续巡检门控。
-
-- `ResultDispatcher`
-  负责把巡检输出发送到持久化与 TCP 输出链路。
+- `ui`：负责用户交互、参数录入、图像显示、结果展示、历史回看与状态反馈。
+- `application`：负责接收 UI 请求、创建巡检任务、维护运行状态、分发结果到 UI / 存储 / 通信链路。
+- `domain`：负责检测业务对象与核心算法处理，包括任务、配方、缺陷、结果、记录和图像处理逻辑。
+- `infrastructure`：负责具体技术实现，包括输入源采集、后台 worker、TCP 通信、配置读写、图片归档和数据库记录。
+- `common`：负责日志、常量、时间、图像格式转换等通用能力。
 
 ## 线程模型
 
-项目采用 Qt 常见的 `QThread + worker object` 模式组织后台任务：
+项目采用 Qt 常见的 `QThread + worker object` 模式拆分后台任务：
 
-- UI 主线程
-  负责主窗口、状态同步和用户交互。
+```mermaid
+sequenceDiagram
+    participant UI as UI 主线程
+    participant App as AppController
+    participant Capture as 采集线程
+    participant Inspect as 巡检线程
+    participant Store as 持久化线程
+    participant Tcp as TCP 线程
 
-- 采集线程
-  负责输入源打开、关闭、预览与帧读取。
+    UI->>App: 用户操作
+    App->>Capture: 打开输入源 / 开始预览
+    Capture-->>App: previewFrameReady(CapturedFrame)
+    App->>Inspect: inspectionRequested(InspectionTask)
+    Inspect-->>App: completed(InspectionExecutionPayload)
+    App->>Store: persistenceRequested(payload)
+    App->>Tcp: tcpSendRequested(result)
+    App-->>UI: 状态刷新 / 结果展示
+```
 
-- 巡检线程
-  负责图像处理与巡检执行。
+- UI 主线程：主窗口、用户交互、状态同步和结果展示。
+- 采集线程：输入源打开、关闭、预览与帧读取。
+- 巡检线程：图像处理、缺陷检测与结果图生成。
+- 持久化线程：图片归档和记录落库。
+- 通信线程：TCP 连接、断开、结果发送和回执处理。
+- 日志线程：日志异步写入与 UI 日志分发。
 
-- 持久化线程
-  负责记录保存和图片归档。
+## 核心模型
 
-- 通信线程
-  负责 TCP 连接和结果发送。
+- `Recipe`：AOI 配方，集中管理 ROI、阈值、面积范围、形态学开关、图片留痕策略和 TCP 发送策略。
+- `CapturedFrame`：统一帧对象，封装 `cv::Mat`、输入源、帧号和采集时间。
+- `InspectionTask`：一次巡检任务，包含任务 ID、输入帧和本次使用的配方快照。
+- `InspectionResult`：结构化检测结果，包含 OK/NG、缺陷数量、缺陷明细、耗时、失败原因和摘要文本。
+- `InspectionExecutionPayload`：巡检 worker 执行完成后的载荷，包含原始任务、结构化结果和结果图。
+- `InspectionRecord`：检测记录，保存输入源、配方名、结果、摘要、图片路径和时间戳。
 
-- 日志线程
-  负责日志异步写入与 UI 日志流分发。
+## 关键模块
 
-## 主要模块
+- `AppController`：应用主控入口，连接 UI、采集、巡检、持久化和通信链路。
+- `InspectionOrchestrator`：负责把文件路径或采集帧转换成标准巡检任务，并处理当前帧巡检和连续巡检门控。
+- `ResultDispatcher`：负责把巡检结果收敛为 UI 展示结果，并触发持久化与 TCP 输出。
+- `CaptureWorker`：输入源采集 worker，负责视频文件和摄像头的打开、关闭、预览和帧读取。
+- `InspectionWorker`：后台巡检 worker，负责接收 `InspectionTask`、调用 `ImageProcessor`、回传执行结果。
+- `ImageProcessor`：图像处理核心，负责 ROI、灰度转换、阈值化、形态学处理、轮廓提取和缺陷筛选。
+- `InspectionPersistenceWorker`：持久化 worker，负责原图 / 结果图归档和检测记录保存。
+- `TcpWorker`：TCP 通信 worker，负责连接、断开、结果发送和回执处理。
+- `ConfigManager`：配置管理模块，负责配方、设备配置和输入源配置的读写与规范化。
 
-项目当前包含以下主要模块：
+## 工程设计要点
 
-- `AppController`
-  主流程控制入口，连接 UI 与后台链路。
+- 完整链路：覆盖从输入源到检测结果输出的 AOI 工站软件闭环。
+- 多线程工程化：采集、巡检、持久化、通信和日志拆到后台 worker，避免 UI 阻塞。
+- 任务建模：使用 `InspectionTask` 固化一次检测上下文，适合异步执行和结果追踪。
+- 配方快照：检测任务携带配方快照，避免运行中参数变化影响已提交任务。
+- 结果结构化：使用 `InspectionResult` 统一承接 OK/NG、缺陷明细、耗时和摘要。
+- 结果追溯：保存原图、结果图、配方名、输入源、帧号和检测摘要，便于问题回看。
+- 异步通信保护：TCP 发送携带设备配置快照，回调时校验上下文，避免旧任务污染当前连接状态。
 
-- `CaptureWorker`
-  输入源采集 worker，负责视频文件和摄像头预览。
+## 主要技术实现
 
-- `InspectionWorker`
-  后台巡检 worker，负责执行图像巡检任务。
-
-- `ImageProcessor`
-  图像处理核心模块，负责图像转换、阈值化、形态学处理、轮廓筛选等逻辑。
-
-- `InspectionPersistenceWorker`
-  持久化 worker，负责记录保存与图片归档。
-
-- `TcpWorker`
-  TCP 通信 worker，负责连接、断开和结果发送。
-
-- `ConfigManager`
-  配置管理模块，负责配方、设备配置和输入源配置读写。
+- 桌面框架：使用 Qt Widgets 实现上位机界面、状态刷新、图像显示和用户交互。
+- 异步通信：使用 Qt Signal/Slot 组织 UI、控制层和后台 worker 之间的请求与回调。
+- 后台任务：使用 `QThread + worker object` 拆分采集、巡检、持久化、TCP 通信和日志写入。
+- 图像处理：使用 OpenCV 完成 ROI、灰度转换、阈值分割、形态学处理、轮廓提取和缺陷筛选。
+- 数据留痕：使用 SQLite 保存检测记录，并归档原图和结果图。
+- 结果通信：使用 TCP 输出检测结果，并处理连接、发送和回执状态。
+- 工程构建：使用 CMake Presets 管理 MinGW / Ninja 构建流程。
+- 单元测试：使用 Qt Test 和 ctest 覆盖核心算法、配置、编排、worker 和历史回看逻辑。
 
 ## 构建说明
 
-项目使用 CMake 构建，并提供了 MinGW/Ninja 预设。
-
-### 使用 CMake Presets
+项目使用 CMake 构建，并支持 MinGW / Ninja 环境。
 
 调试构建：
 
@@ -222,8 +170,6 @@ cmake --build --preset mingw-debug
 cmake --preset mingw-release
 cmake --build --preset mingw-release
 ```
-
-### 可选环境变量 / CMake 变量
 
 当本地 Qt、OpenCV 或 vcpkg 路径不在默认搜索路径时，可以通过以下变量提供：
 
@@ -241,18 +187,15 @@ cmake --build --preset mingw-release
 build/mingw-debug/VisionInspectionSystem.exe
 ```
 
-运行程序后，可根据输入源类型执行以下操作：
+运行程序后，可执行以下典型流程：
 
-- 选择本地图片进行单次巡检
-- 打开视频文件并预览
-- 打开摄像头并预览
-- 对当前帧执行巡检
-- 启动或停止连续巡检
-- 查看最近记录并回看历史图片
+```text
+选择输入源 -> 打开/预览 -> 执行单次或当前帧巡检 -> 查看结果图 -> 查看历史记录 -> 发送 TCP 结果
+```
 
 ## 测试
 
-项目包含一组基础模块与应用层测试，覆盖以下方向：
+项目包含基础模块、应用编排和 worker 测试，覆盖以下方向：
 
 - 图像处理
 - 工具函数
@@ -262,6 +205,7 @@ build/mingw-debug/VisionInspectionSystem.exe
 - 结果分发
 - 巡检 worker
 - 持久化 worker
+- 历史记录回看
 
 运行方式：
 
@@ -269,22 +213,14 @@ build/mingw-debug/VisionInspectionSystem.exe
 ctest --output-on-failure
 ```
 
-## 依赖
+测试目标包括：
 
-项目主要依赖：
-
-- Qt Widgets
-- Qt Network
-- Qt Sql
-- OpenCV
-- SQLite
-
-## 适用方向
-
-该项目适合作为以下类型软件的开发基础：
-
-- 工业检测上位机
-- 机器视觉巡检软件
-- AOI 检测软件
-- 视觉测量软件
-- 结果留痕与回传型视觉终端
+- `VisionImageProcessorTests`
+- `VisionUtilsTests`
+- `VisionConfigManagerTests`
+- `VisionInspectionSessionStateTests`
+- `VisionInspectionOrchestratorTests`
+- `VisionResultDispatcherTests`
+- `VisionInspectionWorkerTests`
+- `VisionInspectionPersistenceTests`
+- `VisionHistoryReviewTests`

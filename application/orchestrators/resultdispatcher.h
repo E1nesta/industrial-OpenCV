@@ -7,8 +7,9 @@
 #include <QImage>
 #include <QString>
 
+#include "application/inspectionexecutionpayload.h"
+#include "application/inspectiondispatchcontext.h"
 #include "domain/entities/deviceconfig.h"
-#include "domain/entities/inspectionoutput.h"
 
 class LogManager;
 
@@ -27,8 +28,8 @@ class ResultDispatcher
 public:
     // 分发入口：收敛结果并触发持久化/TCP 出口回调。
     ResultDispatchOutcome dispatch(
-        const InspectionOutput &output,
+        const InspectionDispatchContext &context,
         LogManager *logManager,
-        const std::function<void(const InspectionOutput &)> &persistenceSink,
+        const std::function<void(const InspectionExecutionPayload &)> &persistenceSink,
         const std::function<void(const QString &, bool, const DeviceConfig &)> &tcpSink) const;
 };

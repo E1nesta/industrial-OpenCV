@@ -5,7 +5,7 @@
 #include <QObject>
 #include <QString>
 
-#include "domain/entities/inspectionoutput.h"
+#include "application/inspectionexecutionpayload.h"
 #include "domain/entities/persistenceresult.h"
 #include "infrastructure/storage/recordmanager.h"
 
@@ -24,14 +24,14 @@ signals:
 
 public slots:
     // 后台持久化入口：归档图片并保存数据库记录。
-    void persist(const InspectionOutput &output);
+    void persist(const InspectionExecutionPayload &executionPayload);
 
 private:
     // 内部辅助：路径解析、记录构建、图片归档。
-    QString resolvedImageSaveDirectory(const InspectionOutput &output) const;
-    InspectionRecord buildInspectionRecord(const InspectionOutput &output) const;
+    QString resolvedImageSaveDirectory(const InspectionExecutionPayload &executionPayload) const;
+    InspectionRecord buildInspectionRecord(const InspectionExecutionPayload &executionPayload) const;
     bool archiveInspectionImages(
-        const InspectionOutput &output,
+        const InspectionExecutionPayload &executionPayload,
         InspectionRecord &record,
         QString *errorMessage) const;
 

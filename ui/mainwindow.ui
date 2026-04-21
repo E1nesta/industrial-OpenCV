@@ -11,7 +11,7 @@
    </rect>
   </property>
   <property name="windowTitle">
-   <string>机器视觉巡检上位机</string>
+   <string>AOI 外观检测工站上位机</string>
   </property>
   <widget class="QWidget" name="centralwidget">
    <layout class="QVBoxLayout" name="mainLayout">
@@ -75,7 +75,7 @@
             <item row="0" column="1">
              <widget class="QLabel" name="stageValueLabel">
               <property name="text">
-               <string>机器视觉巡检闭环（输入、预览、巡检、留痕、TCP 输出）</string>
+               <string>AOI 外观检测闭环（输入、预览、检测、留痕、TCP 输出）</string>
               </property>
               <property name="wordWrap">
                <bool>true</bool>
@@ -254,27 +254,27 @@
          <item>
           <widget class="QGroupBox" name="actionGroupBox">
            <property name="title">
-            <string>巡检操作</string>
+            <string>检测操作</string>
            </property>
            <layout class="QVBoxLayout" name="actionLayout">
             <item>
              <widget class="QPushButton" name="startInspectionButton">
               <property name="text">
-               <string>开始巡检</string>
+               <string>开始检测</string>
               </property>
              </widget>
             </item>
             <item>
              <widget class="QPushButton" name="stopInspectionButton">
               <property name="text">
-               <string>停止巡检</string>
+               <string>停止检测</string>
               </property>
              </widget>
             </item>
             <item>
              <widget class="QLabel" name="continuousInspectionIntervalLabel">
               <property name="text">
-               <string>连续巡检间隔</string>
+               <string>连续检测间隔</string>
               </property>
              </widget>
             </item>
@@ -284,14 +284,14 @@
             <item>
              <widget class="QPushButton" name="startContinuousInspectionButton">
               <property name="text">
-               <string>开始连续巡检</string>
+               <string>开始连续检测</string>
               </property>
              </widget>
             </item>
             <item>
              <widget class="QPushButton" name="stopContinuousInspectionButton">
               <property name="text">
-               <string>停止连续巡检</string>
+               <string>停止连续检测</string>
               </property>
              </widget>
             </item>
@@ -473,13 +473,44 @@
              </property>
               <layout class="QFormLayout" name="recipeFormLayout">
               <item row="0" column="0">
+               <widget class="QLabel" name="recipeNameLabel">
+                <property name="text">
+                 <string>配方名</string>
+                </property>
+               </widget>
+              </item>
+              <item row="0" column="1">
+               <widget class="QLineEdit" name="recipeNameLineEdit">
+                <property name="placeholderText">
+                 <string>default-aoi</string>
+                </property>
+               </widget>
+              </item>
+              <item row="1" column="0">
+               <widget class="QLabel" name="enableDefectDetectionLabel">
+                <property name="text">
+                 <string>缺陷检测项</string>
+                </property>
+               </widget>
+              </item>
+              <item row="1" column="1">
+               <widget class="QCheckBox" name="enableDefectDetectionCheckBox">
+                <property name="text">
+                 <string>启用 AOI 外观缺陷检测</string>
+                </property>
+                <property name="checked">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+              <item row="2" column="0">
                <widget class="QLabel" name="thresholdLabel">
                 <property name="text">
                  <string>阈值</string>
                 </property>
                </widget>
               </item>
-              <item row="0" column="1">
+              <item row="2" column="1">
                <widget class="QSpinBox" name="thresholdSpinBox">
                 <property name="maximum">
                  <number>255</number>
@@ -489,14 +520,14 @@
                 </property>
                </widget>
               </item>
-              <item row="1" column="0">
+              <item row="3" column="0">
                <widget class="QLabel" name="minAreaLabel">
                 <property name="text">
                  <string>最小面积</string>
                 </property>
                </widget>
               </item>
-              <item row="1" column="1">
+              <item row="3" column="1">
                <widget class="QSpinBox" name="minAreaSpinBox">
                 <property name="maximum">
                  <number>100000</number>
@@ -506,14 +537,14 @@
                 </property>
                </widget>
               </item>
-              <item row="2" column="0">
+              <item row="4" column="0">
                <widget class="QLabel" name="maxAreaLabel">
                 <property name="text">
                  <string>最大面积</string>
                 </property>
                </widget>
               </item>
-              <item row="2" column="1">
+              <item row="4" column="1">
                <widget class="QSpinBox" name="maxAreaSpinBox">
                 <property name="maximum">
                  <number>1000000</number>
@@ -523,84 +554,84 @@
                 </property>
                </widget>
               </item>
-              <item row="3" column="0">
+              <item row="5" column="0">
                <widget class="QLabel" name="morphologyLabel">
                 <property name="text">
                  <string>形态学处理</string>
                 </property>
                </widget>
               </item>
-              <item row="3" column="1">
+              <item row="5" column="1">
                <widget class="QCheckBox" name="morphologyCheckBox">
                 <property name="text">
                  <string>启用</string>
                 </property>
                </widget>
               </item>
-              <item row="4" column="0">
+              <item row="6" column="0">
                <widget class="QLabel" name="roiXLabel">
                 <property name="text">
                  <string>ROI X</string>
                 </property>
                </widget>
               </item>
-              <item row="4" column="1">
+              <item row="6" column="1">
                <widget class="QSpinBox" name="roiXSpinBox">
                 <property name="maximum">
                  <number>100000</number>
                 </property>
                </widget>
               </item>
-              <item row="5" column="0">
+              <item row="7" column="0">
                <widget class="QLabel" name="roiYLabel">
                 <property name="text">
                  <string>ROI Y</string>
                 </property>
                </widget>
               </item>
-              <item row="5" column="1">
+              <item row="7" column="1">
                <widget class="QSpinBox" name="roiYSpinBox">
                 <property name="maximum">
                  <number>100000</number>
                 </property>
                </widget>
               </item>
-              <item row="6" column="0">
+              <item row="8" column="0">
                <widget class="QLabel" name="roiWidthLabel">
                 <property name="text">
                  <string>ROI 宽度</string>
                 </property>
                </widget>
               </item>
-              <item row="6" column="1">
+              <item row="8" column="1">
                <widget class="QSpinBox" name="roiWidthSpinBox">
                 <property name="maximum">
                  <number>100000</number>
                 </property>
                </widget>
               </item>
-              <item row="7" column="0">
+              <item row="9" column="0">
                <widget class="QLabel" name="roiHeightLabel">
                 <property name="text">
                  <string>ROI 高度</string>
                 </property>
                </widget>
               </item>
-              <item row="7" column="1">
+              <item row="9" column="1">
                <widget class="QSpinBox" name="roiHeightSpinBox">
                 <property name="maximum">
                  <number>100000</number>
                 </property>
                </widget>
               </item>
-              <item row="8" column="0">
+              <item row="10" column="0">
                <widget class="QLabel" name="roiLabel">
                 <property name="text">
                  <string>ROI 摘要</string>
                 </property>
                </widget>
               </item>
-              <item row="8" column="1">
+              <item row="10" column="1">
                <widget class="QLabel" name="roiValueLabel">
                 <property name="text">
                  <string>未设置</string>
@@ -610,28 +641,79 @@
                 </property>
                </widget>
               </item>
-              <item row="9" column="0" colspan="2">
+              <item row="11" column="0" colspan="2">
                <widget class="QPushButton" name="clearRoiButton">
                 <property name="text">
                  <string>清空 ROI</string>
                 </property>
                </widget>
               </item>
-              <item row="10" column="0">
-               <widget class="QLabel" name="imageSavePathLabel">
+              <item row="12" column="0">
+               <widget class="QLabel" name="saveSourceImageLabel">
                 <property name="text">
-                 <string>图片保存路径</string>
+                 <string>保存原图</string>
                 </property>
                </widget>
               </item>
-              <item row="10" column="1">
+              <item row="12" column="1">
+               <widget class="QCheckBox" name="saveSourceImageCheckBox">
+                <property name="text">
+                 <string>启用</string>
+                </property>
+                <property name="checked">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+              <item row="13" column="0">
+               <widget class="QLabel" name="saveResultImageLabel">
+                <property name="text">
+                 <string>保存结果图</string>
+                </property>
+               </widget>
+              </item>
+              <item row="13" column="1">
+               <widget class="QCheckBox" name="saveResultImageCheckBox">
+                <property name="text">
+                 <string>启用</string>
+                </property>
+                <property name="checked">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+              <item row="14" column="0">
+               <widget class="QLabel" name="enableTcpResultLabel">
+                <property name="text">
+                 <string>结果发送</string>
+                </property>
+               </widget>
+              </item>
+              <item row="14" column="1">
+               <widget class="QCheckBox" name="enableTcpResultCheckBox">
+                <property name="text">
+                 <string>允许 TCP 输出</string>
+                </property>
+                <property name="checked">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+              <item row="15" column="0">
+               <widget class="QLabel" name="imageSavePathLabel">
+                <property name="text">
+                 <string>留痕目录</string>
+                </property>
+               </widget>
+              </item>
+              <item row="15" column="1">
                <widget class="QLineEdit" name="imageSavePathLineEdit">
                 <property name="placeholderText">
                  <string>data/images</string>
                 </property>
                </widget>
               </item>
-              <item row="11" column="0" colspan="2">
+              <item row="16" column="0" colspan="2">
                <widget class="QPushButton" name="browseImageSavePathButton">
                 <property name="text">
                  <string>选择图片保存目录</string>
@@ -656,7 +738,7 @@
               </size>
              </property>
              <property name="title">
-              <string>巡检摘要</string>
+              <string>检测摘要</string>
              </property>
               <layout class="QFormLayout" name="summaryFormLayout">
               <item row="0" column="0">
@@ -705,27 +787,61 @@
                </widget>
               </item>
               <item row="3" column="0">
+               <widget class="QLabel" name="activeRecipeLabel">
+                <property name="text">
+                 <string>当前配方</string>
+                </property>
+               </widget>
+              </item>
+              <item row="3" column="1">
+               <widget class="QLabel" name="activeRecipeValueLabel">
+                <property name="text">
+                 <string>default-aoi</string>
+                </property>
+                <property name="wordWrap">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+              <item row="4" column="0">
                <widget class="QLabel" name="processTimeLabel">
                 <property name="text">
                  <string>处理耗时</string>
                 </property>
                </widget>
               </item>
-              <item row="3" column="1">
+              <item row="4" column="1">
                <widget class="QLabel" name="processTimeValueLabel">
                 <property name="text">
                  <string>--</string>
                 </property>
                </widget>
               </item>
-              <item row="4" column="0">
+              <item row="5" column="0">
+               <widget class="QLabel" name="summaryTextLabel">
+                <property name="text">
+                 <string>结果摘要</string>
+                </property>
+               </widget>
+              </item>
+              <item row="5" column="1">
+               <widget class="QLabel" name="summaryTextValueLabel">
+                <property name="text">
+                 <string>--</string>
+                </property>
+                <property name="wordWrap">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+              <item row="6" column="0">
                <widget class="QLabel" name="configPathLabel">
                 <property name="text">
                  <string>配置路径</string>
                 </property>
                </widget>
               </item>
-              <item row="4" column="1">
+              <item row="6" column="1">
                <widget class="QLabel" name="configPathValueLabel">
                 <property name="text">
                  <string>config/settings.ini</string>

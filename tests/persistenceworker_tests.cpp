@@ -10,30 +10,40 @@
 
 namespace
 {
-InspectionOutput makeOutput(const QString &imageSavePath)
+InspectionExecutionPayload makeExecutionPayload(const QString &imageSavePath)
 {
-    InspectionOutput output;
-    output.request.inspectionId = QStringLiteral("inspection-persist-001");
-    output.request.frame.meta.captureId = QStringLiteral("capture-persist-001");
-    output.request.frame.meta.sourceType = InputSourceType::VideoFile;
-    output.request.frame.meta.sourcePath = QStringLiteral("G:/video/sample.mp4");
-    output.request.frame.meta.sourceName = QStringLiteral("sample.mp4");
-    output.request.frame.meta.frameIndex = 7;
-    output.request.frame.meta.capturedAt = QDateTime::currentDateTime();
-    output.request.recipe.imageSavePath = imageSavePath;
-    output.request.frame.image = cv::Mat(720, 1280, CV_8UC3, cv::Scalar(240, 240, 240));
+    InspectionExecutionPayload executionPayload;
+    executionPayload.request.inspectionId = QStringLiteral("inspection-persist-001");
+    executionPayload.request.frame.meta.captureId = QStringLiteral("capture-persist-001");
+    executionPayload.request.frame.meta.sourceType = InputSourceType::VideoFile;
+    executionPayload.request.frame.meta.sourcePath = QStringLiteral("G:/video/sample.mp4");
+    executionPayload.request.frame.meta.sourceName = QStringLiteral("sample.mp4");
+    executionPayload.request.frame.meta.frameIndex = 7;
+    executionPayload.request.frame.meta.capturedAt = QDateTime::currentDateTime();
+    executionPayload.request.recipe.recipeName = QStringLiteral("aoi-default");
+    executionPayload.request.recipe.imageSavePath = imageSavePath;
+    executionPayload.request.frame.image = cv::Mat(720, 1280, CV_8UC3, cv::Scalar(240, 240, 240));
 
-    output.result.inspectionId = output.request.inspectionId;
-    output.result.frameMeta = output.request.frame.meta;
-    output.result.isOk = false;
-    output.result.defectCount = 1;
-    output.result.processTimeMs = 15.5;
-    output.result.message = QStringLiteral("检测到 1 处缺陷。");
-    output.result.defectRects.append(QRect(120, 160, 90, 110));
+    executionPayload.result.inspectionId = executionPayload.request.inspectionId;
+    executionPayload.result.frameMeta = executionPayload.request.frame.meta;
+    executionPayload.result.isOk = false;
+    executionPayload.result.defectCount = 1;
+    executionPayload.result.elapsedMs = 15.5;
+    executionPayload.result.summaryText = QStringLiteral("AOI 外观检测 NG：检测到 1 处缺陷。");
+    DefectItem defect;
+    defect.boundingRect = QRect(120, 160, 90, 110);
+    defect.area = 9900.0;
+    defect.category = QStringLiteral("blob_defect");
+    defect.description = QStringLiteral("AOI 外观缺陷候选区域");
+    executionPayload.result.defects.append(defect);
 
-    output.annotatedImage = output.request.frame.image.clone();
-    cv::rectangle(output.annotatedImage, cv::Rect(120, 160, 90, 110), cv::Scalar(0, 0, 255), 2);
-    return output;
+    executionPayload.annotatedImage = executionPayload.request.frame.image.clone();
+    cv::rectangle(
+        executionPayload.annotatedImage,
+        cv::Rect(120, 160, 90, 110),
+        cv::Scalar(0, 0, 255),
+        2);
+    return executionPayload;
 }
 } // namespace
 
@@ -43,6 +53,7 @@ class PersistenceWorkerTests : public QObject
 
 private slots:
     void archivesImagesAndSavesRecord();
+    void fallsBackToSavingResultImageWhenArchiveFlagsAreBothDisabled();
 };
 
 void PersistenceWorkerTests::archivesImagesAndSavesRecord()
@@ -58,7 +69,7 @@ void PersistenceWorkerTests::archivesImagesAndSavesRecord()
     InspectionPersistenceWorker worker(databasePath);
     QSignalSpy completedSpy(&worker, &InspectionPersistenceWorker::persistenceCompleted);
 
-    worker.persist(makeOutput(imageSavePath));
+    worker.persist(makeExecutionPayload(imageSavePath));
 
     QCOMPARE(completedSpy.count(), 1);
     const QList<QVariant> arguments = completedSpy.takeFirst();
@@ -75,6 +86,38 @@ void PersistenceWorkerTests::archivesImagesAndSavesRecord()
     QCOMPARE(result.record.sourceType, InputSourceType::VideoFile);
     QCOMPARE(result.record.frameIndex, 7);
     QCOMPARE(result.record.defectCount, 1);
+    QCOMPARE(result.record.recipeName, QStringLiteral("aoi-default"));
+    QCOMPARE(result.record.summaryText, QStringLiteral("AOI 外观检测 NG：检测到 1 处缺陷。"));
+}
+
+void PersistenceWorkerTests::fallsBackToSavingResultImageWhenArchiveFlagsAreBothDisabled()
+{
+    qRegisterMetaType<PersistenceResult>("PersistenceResult");
+
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    const QString databasePath = tempDir.filePath(QStringLiteral("inspection.db"));
+    const QString imageSavePath = tempDir.filePath(QStringLiteral("images"));
+
+    InspectionExecutionPayload executionPayload = makeExecutionPayload(imageSavePath);
+    executionPayload.request.recipe.saveSourceImage = false;
+    executionPayload.request.recipe.saveResultImage = false;
+
+    InspectionPersistenceWorker worker(databasePath);
+    QSignalSpy completedSpy(&worker, &InspectionPersistenceWorker::persistenceCompleted);
+
+    worker.persist(executionPayload);
+
+    QCOMPARE(completedSpy.count(), 1);
+    const QList<QVariant> arguments = completedSpy.takeFirst();
+    const PersistenceResult result = qvariant_cast<PersistenceResult>(arguments.at(0));
+
+    QVERIFY(result.archiveSucceeded);
+    QVERIFY(result.recordSaved);
+    QVERIFY(result.record.imagePath.isEmpty());
+    QVERIFY(!result.record.resultImagePath.isEmpty());
+    QVERIFY(QFileInfo::exists(result.record.resultImagePath));
 }
 
 QTEST_GUILESS_MAIN(PersistenceWorkerTests)

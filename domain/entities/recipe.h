@@ -38,6 +38,10 @@ inline GrayConversionMode grayConversionModeFromString(const QString &value)
 
 struct Recipe
 {
+    // 配方名称。
+    QString recipeName = QStringLiteral("default-aoi");
+    // 是否启用 AOI 外观缺陷检测项。
+    bool enableDefectDetection = true;
     // 二值化阈值。
     int threshold = 128;
     // 缺陷最小面积。
@@ -48,6 +52,12 @@ struct Recipe
     QRect roi;
     // 是否启用形态学处理。
     bool enableMorphology = false;
+    // 是否保存原图。
+    bool saveSourceImage = true;
+    // 是否保存结果图。
+    bool saveResultImage = true;
+    // 是否允许发送 TCP 结果。
+    bool enableTcpResult = true;
     // 灰度转换模式。
     GrayConversionMode grayConversionMode = GrayConversionMode::StableManual;
     // 图片归档目录。

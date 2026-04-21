@@ -15,6 +15,11 @@ class ConfigManager
 public:
     explicit ConfigManager(QString configPath = QString());
 
+    // 统一规范化入口：供运行态和持久化读写共用同一套参数收敛规则。
+    static Recipe normalizeRecipe(const Recipe &recipe);
+    static DeviceConfig normalizeDeviceConfig(const DeviceConfig &config);
+    static InputSourceConfig normalizeInputSourceConfig(const InputSourceConfig &config);
+
     // 配置读取接口。
     Recipe loadRecipe() const;
     DeviceConfig loadDeviceConfig() const;

@@ -6,12 +6,12 @@
 
 #include <QObject>
 
-#include "domain/entities/inspectionoutput.h"
+#include "application/inspectionexecutionpayload.h"
 
 class LogManager;
 
 // InspectionWorker 在后台线程执行一次完整检测任务。
-// 它负责算法调用、取消控制和结果分发，不负责 UI 或持久化。
+// 它负责算法调用、取消控制和执行载荷回传，不负责 UI 或持久化。
 class InspectionWorker : public QObject
 {
     Q_OBJECT
@@ -25,7 +25,7 @@ public:
 
 signals:
     // 发给控制层的检测结果回调信号。
-    void completed(const InspectionOutput &output);
+    void completed(const InspectionExecutionPayload &executionPayload);
     void failed(const QString &inspectionId, const QString &errorMessage);
     void canceled(const QString &inspectionId);
 

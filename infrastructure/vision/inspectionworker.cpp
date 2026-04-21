@@ -7,9 +7,9 @@
 #include <opencv2/core.hpp>
 #include <opencv2/core/mat.hpp>
 
-#include "common/utils/utils.h"
 #include "common/logging/logmanager.h"
 #include "domain/services/imageprocessor.h"
+#include "infrastructure/vision/inspectionoverlayrenderer.h"
 
 InspectionWorker::InspectionWorker(LogManager *logManager, QObject *parent)
     : QObject(parent)
@@ -80,12 +80,23 @@ void InspectionWorker::process(const InspectionTask &request)
                     .arg(request.frame.meta.captureId),
                 false);
         }
+
+        const GrayConversionMode requestedGrayMode = request.recipe.grayConversionMode;
+        const GrayConversionMode effectiveGrayMode =
+            ImageProcessor::effectiveGrayConversionMode(request.recipe);
+        if (m_logManager != nullptr && effectiveGrayMode != requestedGrayMode) {
+            m_logManager->warn(
+                QStringLiteral("检测"),
+                QStringLiteral(
+                    "灰度模式已降级：inspectionId=%1 requested=%2 effective=%3。"
+                    "若需启用实验 OpenCvCvtColor，请设置环境变量 VISION_ALLOW_UNSTABLE_OPENCV_GRAY=1。")
+                    .arg(inspectionId)
+                    .arg(grayConversionModeToString(requestedGrayMode))
+                    .arg(grayConversionModeToString(effectiveGrayMode)));
+        }
+
         InspectionResult result =
-            imageProcessor.process(
-                sourceImage,
-                request.recipe,
-                m_logManager,
-                [this]() { return m_cancelRequested.load(); });
+            imageProcessor.process(sourceImage, request.recipe);
         if (m_logManager != nullptr) {
             m_logManager->info(
                 QStringLiteral("检测"),
@@ -94,6 +105,13 @@ void InspectionWorker::process(const InspectionTask &request)
                     .arg(request.frame.meta.captureId),
                 false);
         }
+
+        // 算法执行后先检查取消，避免已失效任务继续进入结果收敛链。
+        if (m_cancelRequested.load()) {
+            emit canceled(inspectionId);
+            return;
+        }
+
         result.inspectionId = inspectionId;
         result.frameMeta = request.frame.meta;
         if (m_logManager != nullptr) {
@@ -104,14 +122,8 @@ void InspectionWorker::process(const InspectionTask &request)
                     .arg(request.frame.meta.captureId)
                     .arg(result.isOk ? QStringLiteral("OK") : QStringLiteral("NG"))
                     .arg(result.defectCount)
-                    .arg(result.processTimeMs, 0, 'f', 2),
+                    .arg(result.elapsedMs, 0, 'f', 2),
                 false);
-        }
-
-        if (result.canceled || m_cancelRequested.load()) {
-            // 算法阶段收到取消时，优先回调 canceled，让控制层走取消收尾路径。
-            emit canceled(inspectionId);
-            return;
         }
 
         // 步骤 3 - 结果图绘制：在 worker 线程内生成标注图，主线程只处理展示转换。
@@ -123,7 +135,8 @@ void InspectionWorker::process(const InspectionTask &request)
                     .arg(request.frame.meta.captureId),
                 false);
         }
-        const cv::Mat annotatedImage = utils::drawInspectionOverlay(sourceImage, result);
+        const cv::Mat annotatedImage =
+            inspectionoverlayrenderer::drawInspectionOverlay(sourceImage, result);
         if (m_logManager != nullptr) {
             m_logManager->info(
                 QStringLiteral("检测"),
@@ -159,10 +172,10 @@ void InspectionWorker::process(const InspectionTask &request)
         if (m_logManager != nullptr) {
             m_logManager->debug(QStringLiteral("检测线程"), QStringLiteral("准备发送完成信号。"));
         }
-        InspectionOutput output;
-        output.request = request;
-        output.result = result;
-        output.annotatedImage = annotatedImage.clone();
+        InspectionExecutionPayload executionPayload;
+        executionPayload.request = request;
+        executionPayload.result = result;
+        executionPayload.annotatedImage = annotatedImage.clone();
         if (m_logManager != nullptr) {
             m_logManager->info(
                 QStringLiteral("检测"),
@@ -172,7 +185,7 @@ void InspectionWorker::process(const InspectionTask &request)
                 false);
         }
         // 步骤 4 - 完成分发：一次性回调 completed，交由控制层分发到 UI/存储/通信链路。
-        emit completed(output);
+        emit completed(executionPayload);
     } catch (const cv::Exception &exception) {
         emit failed(
             request.inspectionId,

@@ -5,14 +5,23 @@
 #include "common/logging/logmanager.h"
 #include "common/utils/utils.h"
 
+namespace
+{
+QString resultText(bool isOk)
+{
+    return isOk ? QStringLiteral("OK") : QStringLiteral("NG");
+}
+} // namespace
+
 ResultDispatchOutcome ResultDispatcher::dispatch(
-    const InspectionOutput &output,
+    const InspectionDispatchContext &context,
     LogManager *logManager,
-    const std::function<void(const InspectionOutput &)> &persistenceSink,
+    const std::function<void(const InspectionExecutionPayload &)> &persistenceSink,
     const std::function<void(const QString &, bool, const DeviceConfig &)> &tcpSink) const
 {
     // 输入准备：提取结构化结果，供后续各出口复用。
-    const InspectionResult &result = output.result;
+    const InspectionExecutionPayload &execution = context.execution;
+    const InspectionResult &result = execution.result;
 
     // 阶段 1：记录巡检结论日志，保持主链可追踪。
     if (logManager != nullptr) {
@@ -20,42 +29,45 @@ ResultDispatchOutcome ResultDispatcher::dispatch(
             QStringLiteral("检测"),
             QStringLiteral("检测完成：id=%1 result=%2 defects=%3 time=%4 ms")
                 .arg(result.inspectionId)
-                .arg(utils::boolToResultText(result.isOk))
+                .arg(resultText(result.isOk))
                 .arg(result.defectCount)
-                .arg(result.processTimeMs, 0, 'f', 2));
+                .arg(result.elapsedMs, 0, 'f', 2));
         logManager->info(
             QStringLiteral("检测"),
-            QStringLiteral("检测结论：id=%1 %2").arg(result.inspectionId, result.message));
+            QStringLiteral("检测结论：id=%1 %2")
+                .arg(
+                    result.inspectionId,
+                    result.summaryText.isEmpty() ? result.failureReason : result.summaryText));
         logManager->info(
             QStringLiteral("记录"),
             QStringLiteral("持久化任务已提交：inspectionId=%1 captureId=%2 source=%3")
                 .arg(result.inspectionId)
-                .arg(output.request.frame.meta.captureId)
-                .arg(output.request.frame.meta.sourceName),
+                .arg(execution.request.frame.meta.captureId)
+                .arg(execution.request.frame.meta.sourceName),
             false);
     }
 
     // 阶段 2：把输出分发到持久化链路。
     if (persistenceSink) {
-        persistenceSink(output);
+        persistenceSink(execution);
     }
 
     // 阶段 3：按任务配置决定是否分发 TCP 结果。
-    if (output.request.shouldSendTcpResult) {
+    if (context.shouldSendTcpResult) {
         if (logManager != nullptr) {
             logManager->info(
                 QStringLiteral("通信"),
                 QStringLiteral("TCP 发送任务已提交：inspectionId=%1 result=%2 peer=%3")
                     .arg(result.inspectionId)
-                    .arg(utils::boolToResultText(result.isOk))
+                    .arg(resultText(result.isOk))
                     .arg(QStringLiteral("%1:%2")
-                             .arg(output.request.tcpDeviceConfig.ip)
-                             .arg(output.request.tcpDeviceConfig.port)),
+                             .arg(context.tcpDeviceConfig.ip)
+                             .arg(context.tcpDeviceConfig.port)),
                 false);
         }
 
         if (tcpSink) {
-            tcpSink(result.inspectionId, result.isOk, output.request.tcpDeviceConfig);
+            tcpSink(result.inspectionId, result.isOk, context.tcpDeviceConfig);
         }
     }
 
@@ -65,21 +77,22 @@ ResultDispatchOutcome ResultDispatcher::dispatch(
             QStringLiteral("检测"),
             QStringLiteral("结果图主线程转换开始：inspectionId=%1 size=%2x%3 type=%4")
                 .arg(result.inspectionId)
-                .arg(output.annotatedImage.cols)
-                .arg(output.annotatedImage.rows)
-                .arg(output.annotatedImage.type()),
+                .arg(execution.annotatedImage.cols)
+                .arg(execution.annotatedImage.rows)
+                .arg(execution.annotatedImage.type()),
             false);
     }
 
     // 阶段 5：收敛最终展示输出。
     ResultDispatchOutcome outcome;
     outcome.result = result;
-    outcome.resultImage = utils::matToQImage(output.annotatedImage);
-    outcome.statusMessage =
-        QStringLiteral("检测完成：%1，缺陷 %2 处，耗时 %3 ms")
-            .arg(utils::boolToResultText(result.isOk))
-            .arg(result.defectCount)
-            .arg(result.processTimeMs, 0, 'f', 2);
+    outcome.resultImage = utils::matToQImage(execution.annotatedImage);
+    outcome.statusMessage = !result.summaryText.isEmpty()
+                                ? result.summaryText
+                                : QStringLiteral("检测完成：%1，缺陷 %2 处，耗时 %3 ms")
+                                      .arg(resultText(result.isOk))
+                                      .arg(result.defectCount)
+                                      .arg(result.elapsedMs, 0, 'f', 2);
 
     if (logManager != nullptr) {
         logManager->info(

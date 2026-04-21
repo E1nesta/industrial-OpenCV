@@ -3,11 +3,11 @@
 #pragma once
 
 #include <QMetaType>
-#include <QRect>
 #include <QString>
 #include <QVector>
 
 #include "domain/entities/capturedframe.h"
+#include "domain/entities/defectitem.h"
 
 struct InspectionResult
 {
@@ -17,16 +17,16 @@ struct InspectionResult
     FrameMeta frameMeta;
     // 最终判定结果。
     bool isOk = true;
-    // 是否由用户或系统取消。
-    bool canceled = false;
     // 缺陷数量。
     int defectCount = 0;
     // 处理耗时，单位毫秒。
-    double processTimeMs = 0.0;
-    // 结果说明文本。
-    QString message;
-    // 缺陷框集合。
-    QVector<QRect> defectRects;
+    double elapsedMs = 0.0;
+    // 失败原因。
+    QString failureReason;
+    // 结果摘要文本。
+    QString summaryText;
+    // 缺陷明细集合。
+    QVector<DefectItem> defects;
 };
 
 Q_DECLARE_METATYPE(InspectionResult)

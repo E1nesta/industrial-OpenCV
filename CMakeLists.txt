@@ -323,6 +323,10 @@ endif()
 
 set(PROJECT_SOURCES
     main.cpp
+    application/inspectionexecutionpayload.h
+    application/inspectiondispatchcontext.h
+    application/previewrenderer.h
+    application/previewrenderer.cpp
     application/controllers/appcontroller.h
     application/controllers/appcontroller.cpp
     application/orchestrators/inspectionorchestrator.h
@@ -339,9 +343,9 @@ set(PROJECT_SOURCES
     common/utils/utils.h
     common/utils/utils.cpp
     domain/entities/capturedframe.h
+    domain/entities/defectitem.h
     domain/entities/deviceconfig.h
     domain/entities/inputsource.h
-    domain/entities/inspectionoutput.h
     domain/entities/inspectionrecord.h
     domain/entities/inspectionresult.h
     domain/entities/inspectiontask.h
@@ -370,8 +374,12 @@ set(PROJECT_SOURCES
     infrastructure/storage/inspectionpersistenceworker.cpp
     infrastructure/storage/recordmanager.h
     infrastructure/storage/recordmanager.cpp
+    infrastructure/vision/inspectionoverlayrenderer.h
+    infrastructure/vision/inspectionoverlayrenderer.cpp
     infrastructure/vision/inspectionworker.h
     infrastructure/vision/inspectionworker.cpp
+    ui/historyreviewhelper.h
+    ui/historyreviewhelper.cpp
     ui/imageviewwidget.h
     ui/imageviewwidget.cpp
     ui/mainwindow.h
@@ -484,6 +492,7 @@ if(BUILD_TESTING)
             common/logging/logworker.h
             common/logging/logworker.cpp
             domain/entities/capturedframe.h
+            domain/entities/defectitem.h
             domain/entities/inputsource.h
             domain/entities/inspectionresult.h
             domain/entities/recipe.h
@@ -507,12 +516,17 @@ if(BUILD_TESTING)
 
         add_executable(VisionUtilsTests
             tests/utils_tests.cpp
+            application/previewrenderer.h
+            application/previewrenderer.cpp
             common/utils/utils.h
             common/utils/utils.cpp
             domain/entities/capturedframe.h
+            domain/entities/defectitem.h
             domain/entities/inputsource.h
             domain/entities/inspectionresult.h
             domain/entities/recipe.h
+            infrastructure/vision/inspectionoverlayrenderer.h
+            infrastructure/vision/inspectionoverlayrenderer.cpp
         )
 
         target_include_directories(VisionUtilsTests
@@ -552,6 +566,7 @@ if(BUILD_TESTING)
             common/utils/utils.h
             common/utils/utils.cpp
             domain/entities/capturedframe.h
+            domain/entities/defectitem.h
             domain/entities/deviceconfig.h
             domain/entities/inputsource.h
             domain/entities/inspectiontask.h
@@ -560,6 +575,8 @@ if(BUILD_TESTING)
 
         add_executable(VisionResultDispatcherTests
             tests/resultdispatcher_tests.cpp
+            application/inspectionexecutionpayload.h
+            application/inspectiondispatchcontext.h
             application/orchestrators/resultdispatcher.h
             application/orchestrators/resultdispatcher.cpp
             common/logging/logevent.h
@@ -572,7 +589,6 @@ if(BUILD_TESTING)
             domain/entities/capturedframe.h
             domain/entities/deviceconfig.h
             domain/entities/inputsource.h
-            domain/entities/inspectionoutput.h
             domain/entities/inspectionresult.h
             domain/entities/inspectiontask.h
             domain/entities/recipe.h
@@ -580,33 +596,35 @@ if(BUILD_TESTING)
 
         add_executable(VisionInspectionWorkerTests
             tests/inspectionworker_tests.cpp
+            application/inspectionexecutionpayload.h
             common/logging/logevent.h
             common/logging/logmanager.h
             common/logging/logmanager.cpp
             common/logging/logworker.h
             common/logging/logworker.cpp
-            common/utils/utils.h
-            common/utils/utils.cpp
             domain/entities/capturedframe.h
+            domain/entities/defectitem.h
             domain/entities/inputsource.h
-            domain/entities/inspectionoutput.h
             domain/entities/inspectionresult.h
             domain/entities/inspectiontask.h
             domain/entities/recipe.h
             domain/services/imageprocessor.h
             domain/services/imageprocessor.cpp
+            infrastructure/vision/inspectionoverlayrenderer.h
+            infrastructure/vision/inspectionoverlayrenderer.cpp
             infrastructure/vision/inspectionworker.h
             infrastructure/vision/inspectionworker.cpp
         )
 
         add_executable(VisionInspectionPersistenceTests
             tests/persistenceworker_tests.cpp
+            application/inspectionexecutionpayload.h
             common/config/constants.h
             common/utils/utils.h
             common/utils/utils.cpp
             domain/entities/capturedframe.h
+            domain/entities/defectitem.h
             domain/entities/inputsource.h
-            domain/entities/inspectionoutput.h
             domain/entities/inspectionrecord.h
             domain/entities/inspectionresult.h
             domain/entities/inspectiontask.h
@@ -618,6 +636,14 @@ if(BUILD_TESTING)
             infrastructure/storage/inspectionpersistenceworker.cpp
             infrastructure/storage/recordmanager.h
             infrastructure/storage/recordmanager.cpp
+        )
+
+        add_executable(VisionHistoryReviewTests
+            tests/historyreviewhelper_tests.cpp
+            domain/entities/inputsource.h
+            domain/entities/inspectionrecord.h
+            ui/historyreviewhelper.h
+            ui/historyreviewhelper.cpp
         )
 
         target_include_directories(VisionConfigManagerTests
@@ -701,6 +727,18 @@ if(BUILD_TESTING)
                 ${OpenCV_LIBS}
         )
 
+        target_include_directories(VisionHistoryReviewTests
+            PRIVATE
+                ${CMAKE_CURRENT_SOURCE_DIR}
+        )
+
+        target_link_libraries(VisionHistoryReviewTests
+            PRIVATE
+                Qt${QT_VERSION_MAJOR}::Core
+                Qt${QT_VERSION_MAJOR}::Gui
+                Qt${QT_VERSION_MAJOR}::Test
+        )
+
         add_test(NAME VisionImageProcessorTests COMMAND VisionImageProcessorTests)
         add_test(NAME VisionUtilsTests COMMAND VisionUtilsTests)
         add_test(NAME VisionConfigManagerTests COMMAND VisionConfigManagerTests)
@@ -709,6 +747,7 @@ if(BUILD_TESTING)
         add_test(NAME VisionResultDispatcherTests COMMAND VisionResultDispatcherTests)
         add_test(NAME VisionInspectionWorkerTests COMMAND VisionInspectionWorkerTests)
         add_test(NAME VisionInspectionPersistenceTests COMMAND VisionInspectionPersistenceTests)
+        add_test(NAME VisionHistoryReviewTests COMMAND VisionHistoryReviewTests)
         set_tests_properties(
             VisionImageProcessorTests
             VisionUtilsTests
@@ -718,6 +757,7 @@ if(BUILD_TESTING)
             VisionResultDispatcherTests
             VisionInspectionWorkerTests
             VisionInspectionPersistenceTests
+            VisionHistoryReviewTests
             PROPERTIES
                 ENVIRONMENT "PATH=${_vision_test_path};$ENV{PATH}"
         )

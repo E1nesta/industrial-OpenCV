@@ -17,6 +17,8 @@ struct InspectionRecord
     QString timestamp;
     // 批次号。
     QString batchNo;
+    // 配方名称。
+    QString recipeName;
     // 输入源类型。
     InputSourceType sourceType = InputSourceType::FileImage;
     // 输入源路径。
@@ -31,6 +33,8 @@ struct InspectionRecord
     int defectCount = 0;
     // 处理耗时，单位毫秒。
     double processTimeMs = 0.0;
+    // 结果摘要。
+    QString summaryText;
     // 原图归档路径。
     QString imagePath;
     // 结果图归档路径。

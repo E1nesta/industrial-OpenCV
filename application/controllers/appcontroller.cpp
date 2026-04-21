@@ -2,14 +2,13 @@
 // 本文件位于巡检主链路入口，负责状态收敛与结果回推。
 #include "application/controllers/appcontroller.h"
 
-#include <algorithm>
 #include <QFileInfo>
 #include <QMetaType>
 #include <QTimer>
 #include <utility>
 
+#include "application/previewrenderer.h"
 #include "infrastructure/capture/captureworker.h"
-#include "common/utils/utils.h"
 #include "infrastructure/communication/tcpworker.h"
 #include "infrastructure/vision/inspectionworker.h"
 
@@ -39,19 +38,6 @@ QString describeInputSource(const InputSourceConfig &config)
     }
 }
 
-void applyTcpDispatchSnapshot(
-    InspectionTask *task,
-    bool tcpConnected,
-    const DeviceConfig &deviceConfig)
-{
-    if (task == nullptr) {
-        return;
-    }
-
-    task->shouldSendTcpResult = tcpConnected;
-    task->tcpDeviceConfig = deviceConfig;
-}
-
 bool isSameTcpEndpoint(const DeviceConfig &lhs, const DeviceConfig &rhs)
 {
     return lhs.ip == rhs.ip && lhs.port == rhs.port;
@@ -70,49 +56,6 @@ bool canAdoptPendingInputSourceConfig(const CaptureStatusSnapshot &captureStatus
         && captureStatus.state != CaptureState::Opening
         && captureStatus.state != CaptureState::Closing;
 }
-
-Recipe sanitizeRecipe(const Recipe &recipe)
-{
-    Recipe sanitized = recipe;
-    sanitized.threshold = std::clamp(sanitized.threshold, 0, 255);
-    sanitized.minArea = std::max(0, sanitized.minArea);
-    if (sanitized.maxArea > 0 && sanitized.maxArea < sanitized.minArea) {
-        sanitized.maxArea = sanitized.minArea;
-    }
-    sanitized.roi.setWidth(std::max(0, sanitized.roi.width()));
-    sanitized.roi.setHeight(std::max(0, sanitized.roi.height()));
-    sanitized.imageSavePath = sanitized.imageSavePath.trimmed();
-    if (sanitized.imageSavePath.isEmpty()) {
-        sanitized.imageSavePath = QStringLiteral("data/images");
-    }
-    return sanitized;
-}
-
-DeviceConfig sanitizeDeviceConfig(const DeviceConfig &config)
-{
-    DeviceConfig sanitized = config;
-    sanitized.ip = sanitized.ip.trimmed();
-    sanitized.port = (sanitized.port > 0 && sanitized.port <= 65535) ? sanitized.port : 0;
-    sanitized.comName = sanitized.comName.trimmed();
-    sanitized.tcpConnectTimeoutMs = std::max(100, sanitized.tcpConnectTimeoutMs);
-    sanitized.tcpSendTimeoutMs = std::max(100, sanitized.tcpSendTimeoutMs);
-    sanitized.tcpSendRetryCount = std::max(0, sanitized.tcpSendRetryCount);
-    sanitized.baudRate = std::max(0, sanitized.baudRate);
-    return sanitized;
-}
-
-InputSourceConfig sanitizeInputSourceConfig(const InputSourceConfig &config)
-{
-    InputSourceConfig sanitized = config;
-    sanitized.sourcePath = sanitized.sourcePath.trimmed();
-    sanitized.sourceName = sanitized.sourceName.trimmed();
-    sanitized.deviceIndex = std::max(0, sanitized.deviceIndex);
-    sanitized.previewIntervalMs = std::max(1, sanitized.previewIntervalMs);
-    if (sanitized.type == InputSourceType::Camera && sanitized.sourceName.isEmpty()) {
-        sanitized.sourceName = QStringLiteral("camera-%1").arg(sanitized.deviceIndex);
-    }
-    return sanitized;
-}
 } // namespace
 
 AppController::AppController(QObject *parent)
@@ -124,6 +67,7 @@ AppController::AppController(QObject *parent)
     , m_tcpWorker(new TcpWorker())
 {
     qRegisterMetaType<Recipe>("Recipe");
+    qRegisterMetaType<DefectItem>("DefectItem");
     qRegisterMetaType<InputSourceType>("InputSourceType");
     qRegisterMetaType<CaptureState>("CaptureState");
     qRegisterMetaType<InputSourceConfig>("InputSourceConfig");
@@ -131,8 +75,9 @@ AppController::AppController(QObject *parent)
     qRegisterMetaType<FrameMeta>("FrameMeta");
     qRegisterMetaType<CapturedFrame>("CapturedFrame");
     qRegisterMetaType<InspectionTask>("InspectionTask");
+    qRegisterMetaType<InspectionExecutionPayload>("InspectionExecutionPayload");
     qRegisterMetaType<InspectionResult>("InspectionResult");
-    qRegisterMetaType<InspectionOutput>("InspectionOutput");
+    qRegisterMetaType<InspectionDispatchContext>("InspectionDispatchContext");
     qRegisterMetaType<InspectionRecord>("InspectionRecord");
     qRegisterMetaType<PersistenceResult>("PersistenceResult");
     qRegisterMetaType<QImage>("QImage");
@@ -374,7 +319,7 @@ void AppController::resetToDefaults()
 
 void AppController::setRecipe(const Recipe &param)
 {
-    m_recipe = sanitizeRecipe(param);
+    m_recipe = ConfigManager::normalizeRecipe(param);
     emit recipeChanged();
     if (m_captureStatus.opened
         && m_captureStatus.state == CaptureState::Previewing
@@ -387,7 +332,7 @@ void AppController::setRecipe(const Recipe &param)
 void AppController::setDeviceConfig(const DeviceConfig &config)
 {
     const DeviceConfig previousDeviceConfig = m_deviceConfig;
-    m_deviceConfig = sanitizeDeviceConfig(config);
+    m_deviceConfig = ConfigManager::normalizeDeviceConfig(config);
     if (shouldInvalidateTcpStateForEndpointChange(previousDeviceConfig, m_deviceConfig)) {
         m_tcpOperationState = TcpOperationState::Idle;
         m_isTcpConnected = false;
@@ -402,7 +347,7 @@ void AppController::setDeviceConfig(const DeviceConfig &config)
 
 void AppController::setInputSourceConfig(const InputSourceConfig &config)
 {
-    m_inputSourceConfig = sanitizeInputSourceConfig(config);
+    m_inputSourceConfig = ConfigManager::normalizeInputSourceConfig(config);
 
     bool captureStatusSourceUpdated = false;
     if (canAdoptPendingInputSourceConfig(m_captureStatus)) {
@@ -430,16 +375,9 @@ bool AppController::startInspection(const QString &imagePath)
         return false;
     }
 
-    applyTcpDispatchSnapshot(&task, m_isTcpConnected, m_deviceConfig);
-    m_inspectionWorker->resetCancellation();
-    m_logManager.info(
-        QStringLiteral("巡检"),
-        QStringLiteral("巡检任务已提交：id=%1 source=%2")
-            .arg(m_inspectionState.activeInspectionId, imagePath));
-    updateStatus(QStringLiteral("巡检任务已提交，编号：%1").arg(m_inspectionState.activeInspectionId));
-    emit inspectionStarted();
-    emit inspectionRunningChanged(true);
-    emit inspectionRequested(task);
+    submitInspectionTask(
+        task,
+        QStringLiteral("巡检任务已提交：id=%1 source=%2").arg(task.inspectionId, imagePath));
     return true;
 }
 
@@ -584,18 +522,12 @@ bool AppController::inspectCurrentFrame()
         return false;
     }
 
-    applyTcpDispatchSnapshot(&task, m_isTcpConnected, m_deviceConfig);
-    m_inspectionWorker->resetCancellation();
-    m_logManager.info(
-        QStringLiteral("巡检"),
+    submitInspectionTask(
+        task,
         QStringLiteral("采集帧巡检任务已提交：id=%1 source=%2 frameIndex=%3")
-            .arg(m_inspectionState.activeInspectionId)
+            .arg(task.inspectionId)
             .arg(task.frame.meta.sourceName)
             .arg(task.frame.meta.frameIndex));
-    updateStatus(QStringLiteral("巡检任务已提交，编号：%1").arg(m_inspectionState.activeInspectionId));
-    emit inspectionStarted();
-    emit inspectionRunningChanged(true);
-    emit inspectionRequested(task);
     return true;
 }
 
@@ -831,7 +763,7 @@ QString AppController::databaseFilePath() const
 
 QString AppController::projectStage() const
 {
-    return QStringLiteral("视觉检测闭环（输入、预览、检测、留痕、TCP 输出）");
+    return QStringLiteral("AOI 外观检测工站（输入、预览、检测、留痕、TCP 输出）");
 }
 
 QString AppController::statusMessage() const
@@ -1012,8 +944,10 @@ void AppController::renderLatestPreviewFrame()
             false);
     }
 
-    const QImage previewImage =
-        utils::buildPreviewImage(m_latestPreviewFrame.image, m_recipe, kPreviewMaxLongEdge);
+    const QImage previewImage = previewrenderer::buildPreviewImage(
+        m_latestPreviewFrame.image,
+        m_recipe,
+        kPreviewMaxLongEdge);
     if (previewImage.isNull()) {
         m_logManager.warn(
             QStringLiteral("采集"),
@@ -1051,14 +985,35 @@ void AppController::renderLatestPreviewFrame()
     }
 }
 
-void AppController::handleInspectionCompleted(const InspectionOutput &output)
+void AppController::submitInspectionTask(const InspectionTask &task, const QString &logMessage)
+{
+    m_inspectionWorker->resetCancellation();
+    m_logManager.info(QStringLiteral("巡检"), logMessage);
+    updateStatus(QStringLiteral("巡检任务已提交，编号：%1").arg(task.inspectionId));
+    emit inspectionStarted();
+    emit inspectionRunningChanged(true);
+    emit inspectionRequested(task);
+}
+
+InspectionDispatchContext AppController::withDispatchContext(
+    const InspectionExecutionPayload &executionPayload) const
+{
+    InspectionDispatchContext dispatchContext;
+    dispatchContext.execution = executionPayload;
+    dispatchContext.shouldSendTcpResult =
+        m_isTcpConnected && dispatchContext.execution.request.recipe.enableTcpResult;
+    dispatchContext.tcpDeviceConfig = m_deviceConfig;
+    return dispatchContext;
+}
+
+void AppController::handleInspectionCompleted(const InspectionExecutionPayload &executionPayload)
 {
     // 检测完成后的状态收敛与结果出口由 state + dispatcher 负责。
-    if (!m_inspectionState.matchesActiveInspection(output.result.inspectionId)) {
+    if (!m_inspectionState.matchesActiveInspection(executionPayload.result.inspectionId)) {
         m_logManager.warn(
             QStringLiteral("巡检"),
             QStringLiteral("忽略非活动巡检完成回调：id=%1 active=%2 running=%3")
-                .arg(output.result.inspectionId)
+                .arg(executionPayload.result.inspectionId)
                 .arg(m_inspectionState.activeInspectionId)
                 .arg(m_inspectionState.inspectionRunning ? QStringLiteral("true")
                                                         : QStringLiteral("false")),
@@ -1066,18 +1021,22 @@ void AppController::handleInspectionCompleted(const InspectionOutput &output)
         return;
     }
 
+    const InspectionDispatchContext dispatchContext = withDispatchContext(executionPayload);
+
     m_logManager.info(
         QStringLiteral("巡检"),
         QStringLiteral("主线程收到巡检完成：inspectionId=%1 captureId=%2")
-            .arg(output.result.inspectionId)
-            .arg(output.request.frame.meta.captureId),
+            .arg(dispatchContext.execution.result.inspectionId)
+            .arg(dispatchContext.execution.request.frame.meta.captureId),
         false);
-    m_inspectionState.completeInspection(output.result.inspectionId);
+    m_inspectionState.completeInspection(dispatchContext.execution.result.inspectionId);
 
     const ResultDispatchOutcome dispatchOutcome = m_resultDispatcher.dispatch(
-        output,
+        dispatchContext,
         &m_logManager,
-        [this](const InspectionOutput &dispatchOutput) { emit persistenceRequested(dispatchOutput); },
+        [this](const InspectionExecutionPayload &executionPayload) {
+            emit persistenceRequested(executionPayload);
+        },
         [this](const QString &inspectionId, bool isOk, const DeviceConfig &config) {
             emit tcpSendRequested(inspectionId, isOk, config);
         });

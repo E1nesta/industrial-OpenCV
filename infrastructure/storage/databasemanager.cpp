@@ -74,6 +74,7 @@ bool DatabaseManager::ensureSchema(QSqlDatabase &database, QString *errorMessage
         "capture_id TEXT,"
         "timestamp TEXT NOT NULL,"
         "batch_no TEXT,"
+        "recipe_name TEXT,"
         "source_type TEXT,"
         "source_path TEXT,"
         "source_name TEXT,"
@@ -81,6 +82,7 @@ bool DatabaseManager::ensureSchema(QSqlDatabase &database, QString *errorMessage
         "is_ok INTEGER NOT NULL,"
         "defect_count INTEGER NOT NULL,"
         "process_time_ms REAL NOT NULL,"
+        "summary_text TEXT,"
         "image_path TEXT,"
         "result_image_path TEXT"
         ")"));
@@ -96,6 +98,14 @@ bool DatabaseManager::ensureSchema(QSqlDatabase &database, QString *errorMessage
     if (!ensureColumnExists(
             database,
             QStringLiteral("capture_id"),
+            QStringLiteral("TEXT"),
+            errorMessage)) {
+        return false;
+    }
+
+    if (!ensureColumnExists(
+            database,
+            QStringLiteral("recipe_name"),
             QStringLiteral("TEXT"),
             errorMessage)) {
         return false;
@@ -139,6 +149,14 @@ bool DatabaseManager::ensureSchema(QSqlDatabase &database, QString *errorMessage
         QStringLiteral("TEXT"),
         errorMessage);
     if (!resultImageColumnOk) {
+        return false;
+    }
+
+    if (!ensureColumnExists(
+            database,
+            QStringLiteral("summary_text"),
+            QStringLiteral("TEXT"),
+            errorMessage)) {
         return false;
     }
 

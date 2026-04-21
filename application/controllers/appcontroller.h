@@ -8,12 +8,13 @@
 #include <QString>
 #include <QThread>
 
+#include "application/inspectionexecutionpayload.h"
+#include "application/inspectiondispatchcontext.h"
 #include "application/orchestrators/inspectionorchestrator.h"
 #include "application/orchestrators/resultdispatcher.h"
 #include "application/state/inspectionsessionstate.h"
-#include "domain/entities/capturedframe.h"
 #include "common/logging/logmanager.h"
-#include "domain/entities/inspectionoutput.h"
+#include "domain/entities/capturedframe.h"
 #include "domain/entities/inspectiontask.h"
 #include "domain/entities/inspectionresult.h"
 #include "domain/entities/deviceconfig.h"
@@ -120,8 +121,9 @@ signals:
     void inspectionCanceled();
     void inspectionRunningChanged(bool isRunning);
     void continuousInspectionStateChanged(bool enabled);
-    // 发给持久化和通信 worker 的请求信号。
-    void persistenceRequested(const InspectionOutput &output);
+    // 发给持久化 worker 的执行载荷。
+    void persistenceRequested(const InspectionExecutionPayload &executionPayload);
+    // 发给通信 worker 的配置、连接和发送请求。
     void tcpConfigRequested(const DeviceConfig &config, bool disconnectFirst);
     void tcpConnectRequested(const DeviceConfig &config);
     void tcpDisconnectRequested();
@@ -141,10 +143,12 @@ private:
     void handleCaptureStatusUpdated(const CaptureStatusSnapshot &status);
     void handlePreviewFrameReady(const CapturedFrame &frame);
     void renderLatestPreviewFrame();
+    void submitInspectionTask(const InspectionTask &task, const QString &logMessage);
+    InspectionDispatchContext withDispatchContext(const InspectionExecutionPayload &executionPayload) const;
     // 连续巡检节拍回调：满足条件时对最新帧提交一次巡检。
     void triggerContinuousInspectionTick();
     // 单次巡检完成后的统一出口：更新状态并分发到 UI/存储/通信链路。
-    void handleInspectionCompleted(const InspectionOutput &output);
+    void handleInspectionCompleted(const InspectionExecutionPayload &executionPayload);
     // worker 完成回调：分别处理巡检失败、取消、持久化和通信结果。
     void handleInspectionFailed(const QString &inspectionId, const QString &errorMessage);
     void handleInspectionCanceled(const QString &inspectionId);

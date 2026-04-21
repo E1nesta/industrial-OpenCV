@@ -12,55 +12,60 @@
 
 #include "common/config/constants.h"
 
-namespace
-{
-Recipe sanitizeRecipe(const Recipe &recipe)
-{
-    Recipe sanitized = recipe;
-    sanitized.threshold = std::clamp(sanitized.threshold, 0, 255);
-    sanitized.minArea = std::max(0, sanitized.minArea);
-    if (sanitized.maxArea > 0 && sanitized.maxArea < sanitized.minArea) {
-        sanitized.maxArea = sanitized.minArea;
-    }
-    sanitized.roi.setWidth(std::max(0, sanitized.roi.width()));
-    sanitized.roi.setHeight(std::max(0, sanitized.roi.height()));
-    sanitized.imageSavePath = sanitized.imageSavePath.trimmed();
-    if (sanitized.imageSavePath.isEmpty()) {
-        sanitized.imageSavePath = QStringLiteral("data/images");
-    }
-    return sanitized;
-}
-
-DeviceConfig sanitizeDeviceConfig(const DeviceConfig &config)
-{
-    DeviceConfig sanitized = config;
-    sanitized.ip = sanitized.ip.trimmed();
-    sanitized.port = (sanitized.port > 0 && sanitized.port <= 65535) ? sanitized.port : 0;
-    sanitized.comName = sanitized.comName.trimmed();
-    sanitized.baudRate = std::max(0, sanitized.baudRate);
-    sanitized.tcpConnectTimeoutMs = std::max(100, sanitized.tcpConnectTimeoutMs);
-    sanitized.tcpSendTimeoutMs = std::max(100, sanitized.tcpSendTimeoutMs);
-    sanitized.tcpSendRetryCount = std::max(0, sanitized.tcpSendRetryCount);
-    return sanitized;
-}
-
-InputSourceConfig sanitizeInputSourceConfig(const InputSourceConfig &config)
-{
-    InputSourceConfig sanitized = config;
-    sanitized.sourcePath = sanitized.sourcePath.trimmed();
-    sanitized.sourceName = sanitized.sourceName.trimmed();
-    sanitized.deviceIndex = std::max(0, sanitized.deviceIndex);
-    sanitized.previewIntervalMs = std::max(1, sanitized.previewIntervalMs);
-    if (sanitized.type == InputSourceType::Camera && sanitized.sourceName.isEmpty()) {
-        sanitized.sourceName = QStringLiteral("camera-%1").arg(sanitized.deviceIndex);
-    }
-    return sanitized;
-}
-} // namespace
-
 ConfigManager::ConfigManager(QString configPath)
     : m_configPath(std::move(configPath))
 {
+}
+
+Recipe ConfigManager::normalizeRecipe(const Recipe &recipe)
+{
+    Recipe normalized = recipe;
+    normalized.recipeName = normalized.recipeName.trimmed();
+    if (normalized.recipeName.isEmpty()) {
+        normalized.recipeName = QStringLiteral("default-aoi");
+    }
+    if (!normalized.saveSourceImage && !normalized.saveResultImage) {
+        // 配方持久化阶段至少保留一种留痕图像，避免生成无法回看的记录。
+        normalized.saveResultImage = true;
+    }
+    normalized.threshold = std::clamp(normalized.threshold, 0, 255);
+    normalized.minArea = std::max(0, normalized.minArea);
+    if (normalized.maxArea > 0 && normalized.maxArea < normalized.minArea) {
+        normalized.maxArea = normalized.minArea;
+    }
+    normalized.roi.setWidth(std::max(0, normalized.roi.width()));
+    normalized.roi.setHeight(std::max(0, normalized.roi.height()));
+    normalized.imageSavePath = normalized.imageSavePath.trimmed();
+    if (normalized.imageSavePath.isEmpty()) {
+        normalized.imageSavePath = QStringLiteral("data/images");
+    }
+    return normalized;
+}
+
+DeviceConfig ConfigManager::normalizeDeviceConfig(const DeviceConfig &config)
+{
+    DeviceConfig normalized = config;
+    normalized.ip = normalized.ip.trimmed();
+    normalized.port = (normalized.port > 0 && normalized.port <= 65535) ? normalized.port : 0;
+    normalized.comName = normalized.comName.trimmed();
+    normalized.baudRate = std::max(0, normalized.baudRate);
+    normalized.tcpConnectTimeoutMs = std::max(100, normalized.tcpConnectTimeoutMs);
+    normalized.tcpSendTimeoutMs = std::max(100, normalized.tcpSendTimeoutMs);
+    normalized.tcpSendRetryCount = std::max(0, normalized.tcpSendRetryCount);
+    return normalized;
+}
+
+InputSourceConfig ConfigManager::normalizeInputSourceConfig(const InputSourceConfig &config)
+{
+    InputSourceConfig normalized = config;
+    normalized.sourcePath = normalized.sourcePath.trimmed();
+    normalized.sourceName = normalized.sourceName.trimmed();
+    normalized.deviceIndex = std::max(0, normalized.deviceIndex);
+    normalized.previewIntervalMs = std::max(1, normalized.previewIntervalMs);
+    if (normalized.type == InputSourceType::Camera && normalized.sourceName.isEmpty()) {
+        normalized.sourceName = QStringLiteral("camera-%1").arg(normalized.deviceIndex);
+    }
+    return normalized;
 }
 
 Recipe ConfigManager::loadRecipe() const
@@ -70,10 +75,16 @@ Recipe ConfigManager::loadRecipe() const
 
     // 视觉参数统一从 vision 分组读取，缺失字段回退到结构默认值。
     settings.beginGroup("vision");
+    param.recipeName = settings.value("recipeName", param.recipeName).toString();
+    param.enableDefectDetection =
+        settings.value("enableDefectDetection", param.enableDefectDetection).toBool();
     param.threshold = settings.value("threshold", param.threshold).toInt();
     param.minArea = settings.value("minArea", param.minArea).toInt();
     param.maxArea = settings.value("maxArea", param.maxArea).toInt();
     param.enableMorphology = settings.value("enableMorphology", param.enableMorphology).toBool();
+    param.saveSourceImage = settings.value("saveSourceImage", param.saveSourceImage).toBool();
+    param.saveResultImage = settings.value("saveResultImage", param.saveResultImage).toBool();
+    param.enableTcpResult = settings.value("enableTcpResult", param.enableTcpResult).toBool();
     param.grayConversionMode = grayConversionModeFromString(
         settings.value("grayConversionMode", grayConversionModeToString(param.grayConversionMode)).toString());
     param.imageSavePath = settings.value("imageSavePath", param.imageSavePath).toString();
@@ -85,7 +96,7 @@ Recipe ConfigManager::loadRecipe() const
     param.roi = QRect(roiX, roiY, roiWidth, roiHeight);
     settings.endGroup();
 
-    return sanitizeRecipe(param);
+    return normalizeRecipe(param);
 }
 
 DeviceConfig ConfigManager::loadDeviceConfig() const
@@ -106,7 +117,7 @@ DeviceConfig ConfigManager::loadDeviceConfig() const
         settings.value("tcpSendRetryCount", config.tcpSendRetryCount).toInt();
     settings.endGroup();
 
-    return sanitizeDeviceConfig(config);
+    return normalizeDeviceConfig(config);
 }
 
 InputSourceConfig ConfigManager::loadInputSourceConfig() const
@@ -125,7 +136,7 @@ InputSourceConfig ConfigManager::loadInputSourceConfig() const
         settings.value("previewIntervalMs", config.previewIntervalMs).toInt();
     settings.endGroup();
 
-    return sanitizeInputSourceConfig(config);
+    return normalizeInputSourceConfig(config);
 }
 
 QString ConfigManager::loadLogLevel() const
@@ -143,13 +154,18 @@ void ConfigManager::saveRecipe(const Recipe &param) const
     // 写配置前确保目录存在，避免首次启动写入失败。
     QDir().mkpath(QFileInfo(filePath).absolutePath());
 
-    const Recipe sanitized = sanitizeRecipe(param);
+    const Recipe sanitized = normalizeRecipe(param);
     QSettings settings(filePath, QSettings::IniFormat);
     settings.beginGroup("vision");
+    settings.setValue("recipeName", sanitized.recipeName);
+    settings.setValue("enableDefectDetection", sanitized.enableDefectDetection);
     settings.setValue("threshold", sanitized.threshold);
     settings.setValue("minArea", sanitized.minArea);
     settings.setValue("maxArea", sanitized.maxArea);
     settings.setValue("enableMorphology", sanitized.enableMorphology);
+    settings.setValue("saveSourceImage", sanitized.saveSourceImage);
+    settings.setValue("saveResultImage", sanitized.saveResultImage);
+    settings.setValue("enableTcpResult", sanitized.enableTcpResult);
     settings.setValue("grayConversionMode", grayConversionModeToString(sanitized.grayConversionMode));
     settings.setValue("imageSavePath", sanitized.imageSavePath);
     settings.setValue("roiX", sanitized.roi.x());
@@ -165,7 +181,7 @@ void ConfigManager::saveDeviceConfig(const DeviceConfig &config) const
     const QString filePath = resolvedConfigPath();
     QDir().mkpath(QFileInfo(filePath).absolutePath());
 
-    const DeviceConfig sanitized = sanitizeDeviceConfig(config);
+    const DeviceConfig sanitized = normalizeDeviceConfig(config);
     QSettings settings(filePath, QSettings::IniFormat);
     settings.beginGroup("device");
     settings.setValue("ip", sanitized.ip);
@@ -184,7 +200,7 @@ void ConfigManager::saveInputSourceConfig(const InputSourceConfig &config) const
     const QString filePath = resolvedConfigPath();
     QDir().mkpath(QFileInfo(filePath).absolutePath());
 
-    const InputSourceConfig sanitized = sanitizeInputSourceConfig(config);
+    const InputSourceConfig sanitized = normalizeInputSourceConfig(config);
     QSettings settings(filePath, QSettings::IniFormat);
     settings.beginGroup("input");
     settings.setValue("type", inputSourceTypeToString(sanitized.type));

@@ -21,7 +21,7 @@
 #include <QVBoxLayout>
 
 #include "application/controllers/appcontroller.h"
-#include "common/utils/utils.h"
+#include "ui/historyreviewhelper.h"
 #include "ui/imageviewwidget.h"
 
 namespace
@@ -86,6 +86,24 @@ QString inputSourcePathPlaceholderText(InputSourceType type)
         return QStringLiteral("");
     }
 }
+
+QString inspectionResultText(bool isOk)
+{
+    return isOk ? QStringLiteral("OK") : QStringLiteral("NG");
+}
+
+QString roiSummaryText(const QRect &roi)
+{
+    if (!roi.isValid() || roi.isEmpty()) {
+        return QStringLiteral("未设置");
+    }
+
+    return QStringLiteral("x=%1, y=%2, w=%3, h=%4")
+        .arg(roi.x())
+        .arg(roi.y())
+        .arg(roi.width())
+        .arg(roi.height());
+}
 } // namespace
 
 MainWindow::MainWindow(AppController *controller, QWidget *parent)
@@ -113,7 +131,7 @@ void MainWindow::onImportImageClicked()
     const bool isVideoMode = config.type == InputSourceType::VideoFile;
     const QString filePath = QFileDialog::getOpenFileName(
         this,
-        isVideoMode ? tr("选择视频文件") : tr("选择巡检图片"),
+        isVideoMode ? tr("选择视频文件") : tr("选择检测图片"),
         ui->inputSourcePathLineEdit->text().trimmed(),
         isVideoMode ? tr("视频文件 (*.mp4 *.avi *.mov *.mkv)")
                     : tr("图片文件 (*.png *.jpg *.jpeg *.bmp)"));
@@ -134,6 +152,7 @@ void MainWindow::onImportImageClicked()
         ui->resultStateValueLabel->setText(QStringLiteral("待预览"));
         ui->defectCountValueLabel->setText(QStringLiteral("--"));
         ui->processTimeValueLabel->setText(QStringLiteral("--"));
+        ui->summaryTextValueLabel->setText(QStringLiteral("等待预览帧。"));
         m_controller->logManager().info(QStringLiteral("界面"), QStringLiteral("已选择视频文件：%1").arg(filePath));
         statusBar()->showMessage(tr("视频文件已选择"), 3000);
         syncCaptureState();
@@ -156,6 +175,7 @@ void MainWindow::onImportImageClicked()
     ui->resultStateValueLabel->setText(QStringLiteral("就绪"));
     ui->defectCountValueLabel->setText(QStringLiteral("--"));
     ui->processTimeValueLabel->setText(QStringLiteral("--"));
+    ui->summaryTextValueLabel->setText(QStringLiteral("已载入待检测图片，等待开始检测。"));
 
     m_controller->logManager().info(QStringLiteral("界面"), QStringLiteral("已导入图片：%1").arg(filePath));
     statusBar()->showMessage(tr("图片已加载"), 3000);
@@ -171,7 +191,7 @@ void MainWindow::onStartInspectionClicked()
         const bool shouldLoadCandidate = !candidatePath.isEmpty() && candidatePath != m_currentImagePath;
         const bool hasEffectivePath = !candidatePath.isEmpty() || !m_currentImagePath.isEmpty();
         if (!hasEffectivePath) {
-            QMessageBox::information(this, tr("尚未选择图片"), tr("请先导入一张待巡检图片。"));
+            QMessageBox::information(this, tr("尚未选择图片"), tr("请先导入一张待检测图片。"));
             return;
         }
 
@@ -190,7 +210,7 @@ void MainWindow::onStartInspectionClicked()
 
         if (!m_controller->startInspection(m_currentImagePath)) {
             if (!m_controller->isInspectionRunning()) {
-                QMessageBox::warning(this, tr("巡检未启动"), m_controller->statusMessage());
+                QMessageBox::warning(this, tr("检测未启动"), m_controller->statusMessage());
             }
             return;
         }
@@ -199,7 +219,7 @@ void MainWindow::onStartInspectionClicked()
 
     if (!m_controller->inspectCurrentFrame()) {
         if (!m_controller->isInspectionRunning()) {
-            QMessageBox::warning(this, tr("巡检未启动"), m_controller->statusMessage());
+            QMessageBox::warning(this, tr("检测未启动"), m_controller->statusMessage());
         }
         return;
     }
@@ -213,7 +233,8 @@ void MainWindow::onStopInspectionClicked()
     }
 
     ui->resultStateValueLabel->setText(QStringLiteral("取消中"));
-    statusBar()->showMessage(tr("正在取消巡检任务"), 3000);
+    ui->summaryTextValueLabel->setText(QStringLiteral("正在取消当前检测任务。"));
+    statusBar()->showMessage(tr("正在取消检测任务"), 3000);
 }
 
 void MainWindow::onExportRecordsClicked()
@@ -247,14 +268,16 @@ void MainWindow::onExportRecordsClicked()
     }
 
     QTextStream stream(&file);
-    stream << "timestamp,batch_no,result,defect_count,process_time_ms,image_path,result_image_path\n";
+    stream << "timestamp,batch_no,recipe_name,result,defect_count,process_time_ms,summary_text,image_path,result_image_path\n";
 
     for (const InspectionRecord &record : m_recentRecords) {
         stream << escapeCsvField(record.timestamp) << ','
                << escapeCsvField(record.batchNo) << ','
-               << escapeCsvField(utils::boolToResultText(record.isOk)) << ','
+               << escapeCsvField(record.recipeName) << ','
+               << escapeCsvField(inspectionResultText(record.isOk)) << ','
                << record.defectCount << ','
                << QString::number(record.processTimeMs, 'f', 2) << ','
+               << escapeCsvField(record.summaryText) << ','
                << escapeCsvField(record.imagePath) << ','
                << escapeCsvField(record.resultImagePath) << '\n';
     }
@@ -351,6 +374,7 @@ void MainWindow::onInputSourceTypeChanged()
         ui->resultStateValueLabel->setText(QStringLiteral("--"));
         ui->defectCountValueLabel->setText(QStringLiteral("--"));
         ui->processTimeValueLabel->setText(QStringLiteral("--"));
+        ui->summaryTextValueLabel->setText(QStringLiteral("--"));
     }
 
     const InputSourceConfig config = collectInputSourceConfig();
@@ -403,18 +427,18 @@ void MainWindow::onStartContinuousInspectionClicked()
     m_controller->setInputSourceConfig(collectInputSourceConfig());
 
     if (!m_controller->startContinuousInspection()) {
-        QMessageBox::warning(this, tr("连续巡检未启动"), m_controller->statusMessage());
+        QMessageBox::warning(this, tr("连续检测未启动"), m_controller->statusMessage());
         return;
     }
 
-    statusBar()->showMessage(tr("连续巡检已启动"), 3000);
+    statusBar()->showMessage(tr("连续检测已启动"), 3000);
 }
 
 void MainWindow::onStopContinuousInspectionClicked()
 {
     // 连续检测停止入口：关闭节拍并刷新界面提示。
     m_controller->stopContinuousInspection();
-    statusBar()->showMessage(tr("连续巡检已停止"), 3000);
+    statusBar()->showMessage(tr("连续检测已停止"), 3000);
 }
 
 void MainWindow::onInspectionStarted()
@@ -424,10 +448,11 @@ void MainWindow::onInspectionStarted()
     if (!m_activeInspectionWasContinuous) {
         m_resultImageView->clearImage();
     }
-    ui->resultStateValueLabel->setText(QStringLiteral("巡检中"));
+    ui->resultStateValueLabel->setText(QStringLiteral("检测中"));
     ui->defectCountValueLabel->setText(QStringLiteral("--"));
     ui->processTimeValueLabel->setText(QStringLiteral("--"));
-    statusBar()->showMessage(tr("巡检任务执行中"), 3000);
+    ui->summaryTextValueLabel->setText(QStringLiteral("检测任务执行中。"));
+    statusBar()->showMessage(tr("检测任务执行中"), 3000);
 }
 
 void MainWindow::onInspectionFinished(const InspectionResult &result, const QImage &resultImage)
@@ -446,11 +471,13 @@ void MainWindow::onInspectionFinished(const InspectionResult &result, const QIma
         QStringLiteral("界面"),
         QStringLiteral("结果图已显示到界面：inspectionId=%1").arg(result.inspectionId),
         false);
-    ui->resultStateValueLabel->setText(utils::boolToResultText(result.isOk));
+    ui->resultStateValueLabel->setText(inspectionResultText(result.isOk));
     ui->defectCountValueLabel->setText(QString::number(result.defectCount));
-    ui->processTimeValueLabel->setText(QStringLiteral("%1 ms").arg(result.processTimeMs, 0, 'f', 2));
+    ui->processTimeValueLabel->setText(QStringLiteral("%1 ms").arg(result.elapsedMs, 0, 'f', 2));
+    ui->summaryTextValueLabel->setText(
+        result.summaryText.isEmpty() ? QStringLiteral("--") : result.summaryText);
     m_activeInspectionWasContinuous = false;
-    statusBar()->showMessage(tr("巡检完成"), 3000);
+    statusBar()->showMessage(tr("检测完成"), 3000);
 }
 
 void MainWindow::onInspectionFailed(const QString &errorMessage)
@@ -459,10 +486,11 @@ void MainWindow::onInspectionFailed(const QString &errorMessage)
     ui->resultStateValueLabel->setText(QStringLiteral("失败"));
     ui->defectCountValueLabel->setText(QStringLiteral("--"));
     ui->processTimeValueLabel->setText(QStringLiteral("--"));
+    ui->summaryTextValueLabel->setText(errorMessage);
     m_resultImageView->clearImage();
-    statusBar()->showMessage(tr("巡检失败"), 3000);
+    statusBar()->showMessage(tr("检测失败"), 3000);
     if (!m_activeInspectionWasContinuous) {
-        QMessageBox::warning(this, tr("巡检失败"), errorMessage);
+        QMessageBox::warning(this, tr("检测失败"), errorMessage);
     }
     m_activeInspectionWasContinuous = false;
 }
@@ -473,9 +501,10 @@ void MainWindow::onInspectionCanceled()
     ui->resultStateValueLabel->setText(QStringLiteral("已取消"));
     ui->defectCountValueLabel->setText(QStringLiteral("--"));
     ui->processTimeValueLabel->setText(QStringLiteral("--"));
+    ui->summaryTextValueLabel->setText(QStringLiteral("检测已取消。"));
     m_resultImageView->clearImage();
     m_activeInspectionWasContinuous = false;
-    statusBar()->showMessage(tr("巡检任务已取消"), 3000);
+    statusBar()->showMessage(tr("检测任务已取消"), 3000);
 }
 
 void MainWindow::onInspectionRunningChanged(bool isRunning)
@@ -488,20 +517,25 @@ void MainWindow::onInspectionRunningChanged(bool isRunning)
     if (isRunning && cancelRequested) {
         ui->resultStateValueLabel->setText(QStringLiteral("取消中"));
     } else if (isRunning) {
-        ui->resultStateValueLabel->setText(QStringLiteral("巡检中"));
+        ui->resultStateValueLabel->setText(QStringLiteral("检测中"));
     }
 
     ui->startInspectionButton->setEnabled(!lockForActiveDetection);
     ui->stopInspectionButton->setEnabled(isRunning && !cancelRequested);
-    ui->stopInspectionButton->setText(cancelRequested ? QStringLiteral("取消中...") : QStringLiteral("停止巡检"));
+    ui->stopInspectionButton->setText(cancelRequested ? QStringLiteral("取消中...") : QStringLiteral("停止检测"));
     ui->loadConfigButton->setEnabled(!lockForActiveDetection);
     ui->saveConfigButton->setEnabled(!lockForActiveDetection);
     ui->resetConfigButton->setEnabled(!lockForActiveDetection);
     ui->tcpConnectButton->setEnabled(!lockForActiveDetection);
+    ui->recipeNameLineEdit->setEnabled(!lockForActiveDetection);
+    ui->enableDefectDetectionCheckBox->setEnabled(!lockForActiveDetection);
     ui->thresholdSpinBox->setEnabled(!lockForActiveDetection);
     ui->minAreaSpinBox->setEnabled(!lockForActiveDetection);
     ui->maxAreaSpinBox->setEnabled(!lockForActiveDetection);
     ui->morphologyCheckBox->setEnabled(!lockForActiveDetection);
+    ui->saveSourceImageCheckBox->setEnabled(!lockForActiveDetection);
+    ui->saveResultImageCheckBox->setEnabled(!lockForActiveDetection);
+    ui->enableTcpResultCheckBox->setEnabled(!lockForActiveDetection);
     ui->roiXSpinBox->setEnabled(!lockForActiveDetection);
     ui->roiYSpinBox->setEnabled(!lockForActiveDetection);
     ui->roiWidthSpinBox->setEnabled(!lockForActiveDetection);
@@ -576,9 +610,16 @@ void MainWindow::syncFromController()
     ui->thresholdSpinBox->setValue(param.threshold);
     ui->minAreaSpinBox->setValue(param.minArea);
     ui->maxAreaSpinBox->setValue(param.maxArea);
+    ui->recipeNameLineEdit->setText(param.recipeName);
+    ui->enableDefectDetectionCheckBox->setChecked(param.enableDefectDetection);
+    ui->activeRecipeLabel->setText(QStringLiteral("当前配方"));
     ui->morphologyCheckBox->setChecked(param.enableMorphology);
+    ui->saveSourceImageCheckBox->setChecked(param.saveSourceImage);
+    ui->saveResultImageCheckBox->setChecked(param.saveResultImage);
+    ui->enableTcpResultCheckBox->setChecked(param.enableTcpResult);
     setRoiControls(param.roi);
     ui->imageSavePathLineEdit->setText(param.imageSavePath);
+    ui->activeRecipeValueLabel->setText(param.recipeName);
     ui->tcpIpLineEdit->setText(deviceConfig.ip);
     ui->tcpPortSpinBox->setValue(deviceConfig.port);
     {
@@ -603,6 +644,7 @@ void MainWindow::syncFromController()
         ui->resultStateValueLabel->setText(QStringLiteral("--"));
         ui->defectCountValueLabel->setText(QStringLiteral("--"));
         ui->processTimeValueLabel->setText(QStringLiteral("--"));
+        ui->summaryTextValueLabel->setText(QStringLiteral("--"));
     }
 
     updateInputSourceUi();
@@ -620,10 +662,16 @@ void MainWindow::syncRecentRecords()
 Recipe MainWindow::collectRecipe() const
 {
     Recipe param = m_controller->recipe();
+    const QString recipeName = ui->recipeNameLineEdit->text().trimmed();
+    param.recipeName = recipeName.isEmpty() ? Recipe{}.recipeName : recipeName;
+    param.enableDefectDetection = ui->enableDefectDetectionCheckBox->isChecked();
     param.threshold = ui->thresholdSpinBox->value();
     param.minArea = ui->minAreaSpinBox->value();
     param.maxArea = ui->maxAreaSpinBox->value();
     param.enableMorphology = ui->morphologyCheckBox->isChecked();
+    param.saveSourceImage = ui->saveSourceImageCheckBox->isChecked();
+    param.saveResultImage = ui->saveResultImageCheckBox->isChecked();
+    param.enableTcpResult = ui->enableTcpResultCheckBox->isChecked();
     param.roi = collectRoi();
     const QString imageSavePath = ui->imageSavePathLineEdit->text().trimmed();
     param.imageSavePath = imageSavePath.isEmpty() ? Recipe{}.imageSavePath : imageSavePath;
@@ -686,66 +734,57 @@ QRect MainWindow::collectRoi() const
 void MainWindow::displayRecordDetails(const InspectionRecord &record)
 {
     // 记录详情展示：加载历史原图/结果图并更新结果摘要区域。
-    const QFileInfo imageInfo(record.imagePath);
-    if (!imageInfo.exists()) {
-        m_controller->logManager().warn(
-            QStringLiteral("界面"),
-            QStringLiteral("历史记录图片不存在：%1").arg(record.imagePath));
-        statusBar()->showMessage(tr("历史记录图片不存在"), 3000);
-        return;
+    const HistoryReviewContent reviewContent = loadHistoryReviewContent(record);
+    for (const QString &warning : reviewContent.warnings) {
+        m_controller->logManager().warn(QStringLiteral("界面"), warning);
     }
 
-    const QImage image(record.imagePath);
-    if (image.isNull()) {
-        m_controller->logManager().warn(
-            QStringLiteral("界面"),
-            QStringLiteral("历史记录图片无法加载：%1").arg(record.imagePath));
-        statusBar()->showMessage(tr("历史记录图片无法加载"), 3000);
+    if (!reviewContent.hasDisplayableImage()) {
+        statusBar()->showMessage(reviewContent.statusMessage, 3000);
         return;
     }
 
     InputSourceConfig inputConfig = m_controller->inputSourceConfig();
     inputConfig.type = InputSourceType::FileImage;
-    inputConfig.sourcePath = record.imagePath;
-    inputConfig.sourceName = QFileInfo(record.imagePath).fileName();
+    inputConfig.sourcePath =
+        reviewContent.canReuseAsInspectionInput() ? reviewContent.inspectionInputPath : QString();
+    inputConfig.sourceName =
+        reviewContent.canReuseAsInspectionInput() ? reviewContent.inspectionInputName : QString();
     {
         const QSignalBlocker typeBlocker(ui->inputSourceTypeComboBox);
         ui->inputSourceTypeComboBox->setCurrentIndex(static_cast<int>(InputSourceType::FileImage));
     }
     m_controller->setInputSourceConfig(inputConfig);
-    ui->inputSourcePathLineEdit->setText(record.imagePath);
+    ui->inputSourcePathLineEdit->setText(inputConfig.sourcePath);
     updateInputSourceUi();
 
-    ui->currentImageValueLabel->setText(record.imagePath);
-    ui->resultStateValueLabel->setText(utils::boolToResultText(record.isOk));
+    ui->resultStateValueLabel->setText(inspectionResultText(record.isOk));
     ui->defectCountValueLabel->setText(QString::number(record.defectCount));
     ui->processTimeValueLabel->setText(QStringLiteral("%1 ms").arg(record.processTimeMs, 0, 'f', 2));
+    ui->activeRecipeLabel->setText(QStringLiteral("记录配方"));
+    ui->activeRecipeValueLabel->setText(record.recipeName.isEmpty() ? QStringLiteral("--") : record.recipeName);
+    ui->summaryTextValueLabel->setText(record.summaryText.isEmpty() ? QStringLiteral("--") : record.summaryText);
 
+    m_sourceImageView->clearImage();
     m_resultImageView->clearImage();
 
-    m_currentImagePath = record.imagePath;
-    m_sourceImageView->setImage(image);
+    if (reviewContent.sourceImageReady) {
+        m_currentImagePath = reviewContent.inspectionInputPath;
+        m_sourceImageView->setImage(reviewContent.sourceImage);
+    } else {
+        m_currentImagePath.clear();
+    }
+    ui->currentImageValueLabel->setText(reviewContent.currentImageLabel);
 
-    const QFileInfo resultImageInfo(record.resultImagePath);
-    if (resultImageInfo.exists()) {
-        const QImage resultImage(record.resultImagePath);
-        if (!resultImage.isNull()) {
-            m_resultImageView->setImage(resultImage);
-        } else {
-            m_controller->logManager().warn(
-                QStringLiteral("界面"),
-                QStringLiteral("历史结果图无法加载：%1").arg(record.resultImagePath));
-        }
-    } else if (!record.resultImagePath.isEmpty()) {
-        m_controller->logManager().warn(
-            QStringLiteral("界面"),
-            QStringLiteral("历史结果图不存在：%1").arg(record.resultImagePath));
+    if (reviewContent.resultImageReady) {
+        m_resultImageView->setImage(reviewContent.resultImage);
     }
 
     m_controller->logManager().info(
         QStringLiteral("界面"),
-        QStringLiteral("已切换到历史记录：%1").arg(record.imagePath));
-    statusBar()->showMessage(tr("已加载历史记录原图"), 3000);
+        QStringLiteral("已切换到历史记录：source=%1 result=%2")
+            .arg(record.imagePath, record.resultImagePath));
+    statusBar()->showMessage(reviewContent.statusMessage, 3000);
     syncCaptureState();
 }
 
@@ -803,12 +842,14 @@ void MainWindow::updateRecentRecordsTable(const QList<InspectionRecord> &records
 
     for (int row = 0; row < records.size(); ++row) {
         const InspectionRecord &record = records.at(row);
+        const QString displayPath =
+            !record.imagePath.isEmpty() ? record.imagePath : record.resultImagePath;
         auto *timestampItem = new QTableWidgetItem(record.timestamp);
-        auto *resultItem = new QTableWidgetItem(utils::boolToResultText(record.isOk));
+        auto *resultItem = new QTableWidgetItem(inspectionResultText(record.isOk));
         auto *defectItem = new QTableWidgetItem(QString::number(record.defectCount));
         auto *timeItem = new QTableWidgetItem(QStringLiteral("%1").arg(record.processTimeMs, 0, 'f', 2));
-        auto *imageItem = new QTableWidgetItem(QFileInfo(record.imagePath).fileName());
-        const QString tooltip = QStringLiteral("双击回看\n%1").arg(record.imagePath);
+        auto *imageItem = new QTableWidgetItem(QFileInfo(displayPath).fileName());
+        const QString tooltip = QStringLiteral("双击回看\n%1").arg(displayPath);
 
         timestampItem->setToolTip(tooltip);
         resultItem->setToolTip(tooltip);
@@ -851,7 +892,7 @@ void MainWindow::setRoiControls(const QRect &roi)
 void MainWindow::updateRoiSummary()
 {
     // ROI 摘要出口：把当前 ROI 统一格式化为可读文本。
-    ui->roiValueLabel->setText(utils::formatRoi(collectRoi()));
+    ui->roiValueLabel->setText(roiSummaryText(collectRoi()));
 }
 
 void MainWindow::updateInputSourceUi()
@@ -885,7 +926,7 @@ void MainWindow::updateInputSourceUi()
         config.type == InputSourceType::VideoFile ? QStringLiteral("选择视频文件")
                                                   : QStringLiteral("选择图片文件"));
     ui->startInspectionButton->setText(
-        isFileMode ? QStringLiteral("开始巡检") : QStringLiteral("巡检当前帧"));
+        isFileMode ? QStringLiteral("开始检测") : QStringLiteral("检测当前帧"));
 }
 
 void MainWindow::bindSignals()
@@ -1009,7 +1050,7 @@ void MainWindow::setupImageViews()
     auto *resultLayout = new QVBoxLayout(ui->resultImageHost);
     resultLayout->setContentsMargins(0, 0, 0, 0);
     m_resultImageView = new ImageViewWidget(ui->resultImageHost);
-    m_resultImageView->setPlaceholderText(QStringLiteral("等待巡检结果图"));
+    m_resultImageView->setPlaceholderText(QStringLiteral("等待检测结果图"));
     resultLayout->addWidget(m_resultImageView);
 }
 
@@ -1074,6 +1115,8 @@ void MainWindow::setupUiState()
     ui->resultStateValueLabel->setText(QStringLiteral("--"));
     ui->defectCountValueLabel->setText(QStringLiteral("--"));
     ui->processTimeValueLabel->setText(QStringLiteral("--"));
+    ui->activeRecipeValueLabel->setText(QStringLiteral("default-aoi"));
+    ui->summaryTextValueLabel->setText(QStringLiteral("--"));
     ui->currentImageValueLabel->setText(QStringLiteral("未选择"));
     ui->roiValueLabel->setText(QStringLiteral("未设置"));
     statusBar()->showMessage(tr("系统已启动"), 3000);

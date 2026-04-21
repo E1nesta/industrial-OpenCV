@@ -10,28 +10,28 @@
 
 namespace
 {
-InspectionOutput makeOutput(bool shouldSendTcpResult)
+InspectionDispatchContext makeDispatchContext(bool shouldSendTcpResult)
 {
-    InspectionOutput output;
-    output.request.inspectionId = QStringLiteral("inspection-001");
-    output.request.shouldSendTcpResult = shouldSendTcpResult;
-    output.request.tcpDeviceConfig.ip = QStringLiteral("192.168.1.88");
-    output.request.tcpDeviceConfig.port = 12345;
-    output.request.frame.meta.captureId = QStringLiteral("capture-001");
-    output.request.frame.meta.sourceType = InputSourceType::VideoFile;
-    output.request.frame.meta.sourceName = QStringLiteral("demo.mp4");
-    output.request.frame.meta.frameIndex = 7;
-    output.request.frame.meta.capturedAt = QDateTime::currentDateTime();
-    output.request.recipe.threshold = 128;
+    InspectionDispatchContext context;
+    context.execution.request.inspectionId = QStringLiteral("inspection-001");
+    context.shouldSendTcpResult = shouldSendTcpResult;
+    context.tcpDeviceConfig.ip = QStringLiteral("192.168.1.88");
+    context.tcpDeviceConfig.port = 12345;
+    context.execution.request.frame.meta.captureId = QStringLiteral("capture-001");
+    context.execution.request.frame.meta.sourceType = InputSourceType::VideoFile;
+    context.execution.request.frame.meta.sourceName = QStringLiteral("demo.mp4");
+    context.execution.request.frame.meta.frameIndex = 7;
+    context.execution.request.frame.meta.capturedAt = QDateTime::currentDateTime();
+    context.execution.request.recipe.threshold = 128;
 
-    output.result.inspectionId = output.request.inspectionId;
-    output.result.isOk = false;
-    output.result.defectCount = 2;
-    output.result.processTimeMs = 12.5;
-    output.result.message = QStringLiteral("检测到 2 处缺陷");
+    context.execution.result.inspectionId = context.execution.request.inspectionId;
+    context.execution.result.isOk = false;
+    context.execution.result.defectCount = 2;
+    context.execution.result.elapsedMs = 12.5;
+    context.execution.result.summaryText = QStringLiteral("AOI 外观检测 NG：检测到 2 处缺陷。");
 
-    output.annotatedImage = cv::Mat(24, 32, CV_8UC3, cv::Scalar(10, 20, 30));
-    return output;
+    context.execution.annotatedImage = cv::Mat(24, 32, CV_8UC3, cv::Scalar(10, 20, 30));
+    return context;
 }
 } // namespace
 
@@ -52,41 +52,41 @@ void ResultDispatcherTests::dispatchReturnsOutcomeAndInvokesPersistence()
 
     ResultDispatcher dispatcher;
     LogManager logManager(nullptr, tempDir.filePath(QStringLiteral("logs")));
-    const InspectionOutput output = makeOutput(false);
+    const InspectionDispatchContext context = makeDispatchContext(false);
     int persistenceCallCount = 0;
-    InspectionOutput persistedOutput;
+    InspectionExecutionPayload persistedExecutionPayload;
 
     const ResultDispatchOutcome outcome = dispatcher.dispatch(
-        output,
+        context,
         &logManager,
-        [&persistenceCallCount, &persistedOutput](const InspectionOutput &value) {
+        [&persistenceCallCount, &persistedExecutionPayload](const InspectionExecutionPayload &value) {
             ++persistenceCallCount;
-            persistedOutput = value;
+            persistedExecutionPayload = value;
         },
         {});
 
     QCOMPARE(persistenceCallCount, 1);
-    QCOMPARE(persistedOutput.result.inspectionId, QStringLiteral("inspection-001"));
-    QCOMPARE(outcome.result.inspectionId, output.result.inspectionId);
-    QCOMPARE(outcome.result.defectCount, output.result.defectCount);
-    QCOMPARE(outcome.statusMessage, QStringLiteral("检测完成：NG，缺陷 2 处，耗时 12.50 ms"));
+    QCOMPARE(persistedExecutionPayload.result.inspectionId, QStringLiteral("inspection-001"));
+    QCOMPARE(outcome.result.inspectionId, context.execution.result.inspectionId);
+    QCOMPARE(outcome.result.defectCount, context.execution.result.defectCount);
+    QCOMPARE(outcome.statusMessage, QStringLiteral("AOI 外观检测 NG：检测到 2 处缺陷。"));
     QVERIFY(!outcome.resultImage.isNull());
-    QCOMPARE(outcome.resultImage.width(), output.annotatedImage.cols);
-    QCOMPARE(outcome.resultImage.height(), output.annotatedImage.rows);
+    QCOMPARE(outcome.resultImage.width(), context.execution.annotatedImage.cols);
+    QCOMPARE(outcome.resultImage.height(), context.execution.annotatedImage.rows);
 }
 
 void ResultDispatcherTests::dispatchInvokesTcpOnlyWhenEnabled()
 {
     ResultDispatcher dispatcher;
-    const InspectionOutput enabledOutput = makeOutput(true);
-    const InspectionOutput disabledOutput = makeOutput(false);
+    const InspectionDispatchContext enabledContext = makeDispatchContext(true);
+    const InspectionDispatchContext disabledContext = makeDispatchContext(false);
     int tcpCallCount = 0;
     QString lastInspectionId;
     bool lastIsOk = true;
     DeviceConfig lastConfig;
 
     dispatcher.dispatch(
-        enabledOutput,
+        enabledContext,
         nullptr,
         {},
         [&tcpCallCount, &lastInspectionId, &lastIsOk, &lastConfig](
@@ -99,12 +99,12 @@ void ResultDispatcherTests::dispatchInvokesTcpOnlyWhenEnabled()
 
     QCOMPARE(tcpCallCount, 1);
     QCOMPARE(lastInspectionId, QStringLiteral("inspection-001"));
-    QCOMPARE(lastIsOk, enabledOutput.result.isOk);
+    QCOMPARE(lastIsOk, enabledContext.execution.result.isOk);
     QCOMPARE(lastConfig.ip, QStringLiteral("192.168.1.88"));
     QCOMPARE(lastConfig.port, 12345);
 
     dispatcher.dispatch(
-        disabledOutput,
+        disabledContext,
         nullptr,
         {},
         [&tcpCallCount](const QString &, bool, const DeviceConfig &) { ++tcpCallCount; });
@@ -115,12 +115,12 @@ void ResultDispatcherTests::dispatchInvokesTcpOnlyWhenEnabled()
 void ResultDispatcherTests::dispatchHandlesNullLoggerAndEmptyCallbacks()
 {
     ResultDispatcher dispatcher;
-    const InspectionOutput output = makeOutput(false);
+    const InspectionDispatchContext context = makeDispatchContext(false);
 
-    const ResultDispatchOutcome outcome = dispatcher.dispatch(output, nullptr, {}, {});
+    const ResultDispatchOutcome outcome = dispatcher.dispatch(context, nullptr, {}, {});
 
     QCOMPARE(outcome.result.inspectionId, QStringLiteral("inspection-001"));
-    QCOMPARE(outcome.statusMessage, QStringLiteral("检测完成：NG，缺陷 2 处，耗时 12.50 ms"));
+    QCOMPARE(outcome.statusMessage, QStringLiteral("AOI 外观检测 NG：检测到 2 处缺陷。"));
     QVERIFY(!outcome.resultImage.isNull());
 }
 

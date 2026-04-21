@@ -2,7 +2,9 @@
 
 #include <opencv2/imgproc.hpp>
 
+#include "application/previewrenderer.h"
 #include "common/utils/utils.h"
+#include "infrastructure/vision/inspectionoverlayrenderer.h"
 
 class UtilsTests : public QObject
 {
@@ -70,7 +72,7 @@ void UtilsTests::buildsPreviewImageWithDownsampleAndRoi()
     Recipe param;
     param.roi = QRect(100, 200, 240, 300);
 
-    const QImage preview = utils::buildPreviewImage(image, param, 960);
+    const QImage preview = previewrenderer::buildPreviewImage(image, param, 960);
 
     QVERIFY(!preview.isNull());
     QVERIFY(std::max(preview.width(), preview.height()) <= 960);
@@ -82,10 +84,13 @@ void UtilsTests::drawsInspectionOverlay()
     InspectionResult result;
     result.isOk = false;
     result.defectCount = 1;
-    result.processTimeMs = 12.5;
-    result.defectRects.append(QRect(100, 120, 200, 160));
+    result.elapsedMs = 12.5;
+    DefectItem defect;
+    defect.boundingRect = QRect(100, 120, 200, 160);
+    defect.area = 32000.0;
+    result.defects.append(defect);
 
-    const cv::Mat annotated = utils::drawInspectionOverlay(image, result);
+    const cv::Mat annotated = inspectionoverlayrenderer::drawInspectionOverlay(image, result);
 
     QVERIFY(!annotated.empty());
     QCOMPARE(annotated.cols, image.cols);

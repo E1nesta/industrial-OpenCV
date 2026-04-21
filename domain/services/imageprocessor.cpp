@@ -4,16 +4,12 @@
 
 #include <algorithm>
 #include <chrono>
-#include <functional>
 #include <limits>
 #include <stdexcept>
 
 #include <QtGlobal>
-#include <QDebug>
 
 #include <opencv2/imgproc.hpp>
-
-#include "common/logging/logmanager.h"
 
 namespace
 {
@@ -44,7 +40,7 @@ bool allowExperimentalOpenCvGrayMode()
     return value == "true" || value == "yes" || value == "on";
 }
 
-GrayConversionMode resolveGrayConversionMode(const Recipe &param, LogManager *logManager)
+GrayConversionMode resolveGrayConversionMode(const Recipe &param)
 {
     // 灰度化策略遵循参数配置；OpenCvCvtColor 仅在显式放行时启用。
     if (param.grayConversionMode != GrayConversionMode::OpenCvCvtColor) {
@@ -55,16 +51,7 @@ GrayConversionMode resolveGrayConversionMode(const Recipe &param, LogManager *lo
         return GrayConversionMode::OpenCvCvtColor;
     }
 
-    if (logManager != nullptr) {
-        logManager->warn(
-            QStringLiteral("图像处理"),
-            QStringLiteral(
-                "OpenCvCvtColor 灰度模式属于实验路径，当前未显式放行，已自动回退到 stable_manual。"));
-    } else {
-        qWarning().noquote()
-            << QStringLiteral(
-                   "[imageprocessor] OpenCvCvtColor gray mode is gated and was downgraded to stable_manual.");
-    }
+    // 领域算法默认选择稳定路径，不直接承担项目级日志输出职责。
     return GrayConversionMode::StableManual;
 }
 
@@ -175,11 +162,12 @@ double normalizedMaxArea(const Recipe &param, double minArea)
 }
 } // namespace
 
-InspectionResult ImageProcessor::process(
-    const cv::Mat &image,
-    const Recipe &param,
-    LogManager *logManager,
-    const std::function<bool()> &shouldCancel) const
+GrayConversionMode ImageProcessor::effectiveGrayConversionMode(const Recipe &param)
+{
+    return resolveGrayConversionMode(param);
+}
+
+InspectionResult ImageProcessor::process(const cv::Mat &image, const Recipe &param) const
 {
     // 检测算法主流程：
     // 输入校验 -> ROI 裁剪 -> 灰度化 -> 二值化/形态学 -> 轮廓筛选 -> 结果汇总。
@@ -187,46 +175,18 @@ InspectionResult ImageProcessor::process(
     const auto start = clock::now();
 
     InspectionResult result;
-    const auto makeCanceledResult = [&result]() {
-        result.canceled = true;
-        result.isOk = false;
-        result.message = QStringLiteral("检测已取消。");
-        return result;
-    };
-
-    const auto isCanceled = [&shouldCancel]() {
-        return static_cast<bool>(shouldCancel) && shouldCancel();
-    };
-    const auto logDebug = [logManager](const QString &message) {
-        if (logManager != nullptr) {
-            logManager->debug(QStringLiteral("图像处理"), message);
-        }
-    };
 
     // 入口校验：空图直接失败，避免后续 OpenCV 调用触发无效输入路径。
     if (image.empty()) {
         result.isOk = false;
-        result.message = QStringLiteral("输入图像为空。");
+        result.failureReason = QStringLiteral("输入图像为空。");
+        result.summaryText = result.failureReason;
         return result;
     }
 
     const int effectiveThreshold = normalizedThreshold(param);
     const double effectiveMinArea = normalizedMinArea(param);
     const double effectiveMaxArea = normalizedMaxArea(param, effectiveMinArea);
-
-    logDebug(QStringLiteral("开始：%1x%2 channels=%3 threshold=%4 minArea=%5 maxArea=%6 morphology=%7")
-                 .arg(image.cols)
-                 .arg(image.rows)
-                 .arg(image.channels())
-                 .arg(effectiveThreshold)
-                 .arg(effectiveMinArea)
-                 .arg(effectiveMaxArea)
-                 .arg(param.enableMorphology ? QStringLiteral("true") : QStringLiteral("false")));
-
-    // 取消门控：在进入重计算步骤前优先响应取消请求。
-    if (isCanceled()) {
-        return makeCanceledResult();
-    }
 
     // 步骤 1 - ROI 裁剪：在 ROI 范围内工作，降低后续处理负担并保持结果可映射回原图坐标。
     cv::Mat workingImage = image;
@@ -239,55 +199,36 @@ InspectionResult ImageProcessor::process(
 
         roiRect = cv::Rect(x, y, right - x, bottom - y);
         workingImage = image(roiRect).clone();
-        logDebug(QStringLiteral("ROI 生效：x=%1 y=%2 w=%3 h=%4")
-                     .arg(roiRect.x)
-                     .arg(roiRect.y)
-                     .arg(roiRect.width)
-                     .arg(roiRect.height));
     }
 
-    if (isCanceled()) {
-        return makeCanceledResult();
+    if (!param.enableDefectDetection) {
+        result.isOk = true;
+        result.defectCount = 0;
+        result.summaryText = QStringLiteral("AOI 缺陷检测项已关闭，本次按 OK 收敛。");
+        const auto end = clock::now();
+        result.elapsedMs = std::chrono::duration<double, std::milli>(end - start).count();
+        return result;
     }
 
     // 步骤 2 - 灰度化：统一转换为单通道，为阈值与轮廓处理提供稳定输入。
-    const GrayConversionMode effectiveGrayMode = resolveGrayConversionMode(param, logManager);
+    const GrayConversionMode effectiveGrayMode = effectiveGrayConversionMode(param);
     cv::Mat gray = convertToGray(workingImage, effectiveGrayMode);
-    logDebug(
-        QStringLiteral("灰度化完成：requested=%1 effective=%2")
-            .arg(grayConversionModeToString(param.grayConversionMode))
-            .arg(grayConversionModeToString(effectiveGrayMode)));
-
-    if (isCanceled()) {
-        return makeCanceledResult();
-    }
 
     // 步骤 3 - 二值化/形态学：提取前景并可选去噪，提升轮廓稳定性。
     cv::Mat binary;
     cv::threshold(gray, binary, effectiveThreshold, 255, cv::THRESH_BINARY_INV);
-    logDebug(QStringLiteral("二值化完成。"));
 
     if (param.enableMorphology) {
         const cv::Mat kernel = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3));
         cv::morphologyEx(binary, binary, cv::MORPH_OPEN, kernel);
-        logDebug(QStringLiteral("形态学处理完成。"));
-    }
-
-    if (isCanceled()) {
-        return makeCanceledResult();
     }
 
     // 步骤 4 - 轮廓筛选：按面积过滤候选轮廓并输出缺陷框。
     std::vector<std::vector<cv::Point>> contours;
     cv::findContours(binary, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
-    logDebug(QStringLiteral("轮廓提取完成：count=%1").arg(contours.size()));
 
-    result.defectRects.clear();
+    result.defects.clear();
     for (const auto &contour : contours) {
-        if (isCanceled()) {
-            return makeCanceledResult();
-        }
-
         const double area = cv::contourArea(contour);
         if (area < effectiveMinArea || area > effectiveMaxArea) {
             continue;
@@ -296,22 +237,23 @@ InspectionResult ImageProcessor::process(
         cv::Rect rect = cv::boundingRect(contour);
         rect.x += roiRect.x;
         rect.y += roiRect.y;
-        result.defectRects.append(QRect(rect.x, rect.y, rect.width, rect.height));
-    }
-    logDebug(QStringLiteral("缺陷筛选完成：kept=%1").arg(result.defectRects.size()));
 
-    result.defectCount = static_cast<int>(result.defectRects.size());
+        DefectItem defect;
+        defect.boundingRect = QRect(rect.x, rect.y, rect.width, rect.height);
+        defect.area = area;
+        defect.category = QStringLiteral("blob_defect");
+        defect.description = QStringLiteral("AOI 外观缺陷候选区域");
+        result.defects.append(defect);
+    }
+
+    result.defectCount = static_cast<int>(result.defects.size());
     result.isOk = result.defectCount == 0;
-    result.message = result.isOk
-                         ? QStringLiteral("检测通过。")
-                         : QStringLiteral("检测到 %1 处缺陷。").arg(result.defectCount);
+    result.summaryText = result.isOk
+                             ? QStringLiteral("AOI 外观检测通过。")
+                             : QStringLiteral("AOI 外观检测 NG：检测到 %1 处缺陷。").arg(result.defectCount);
 
     // 步骤 5 - 结果收尾：统计耗时并输出统一结果结构。
     const auto end = clock::now();
-    result.processTimeMs = std::chrono::duration<double, std::milli>(end - start).count();
-    logDebug(QStringLiteral("完成：result=%1 defects=%2 time=%3 ms")
-                 .arg(result.isOk ? QStringLiteral("OK") : QStringLiteral("NG"))
-                 .arg(result.defectCount)
-                 .arg(result.processTimeMs, 0, 'f', 2));
+    result.elapsedMs = std::chrono::duration<double, std::milli>(end - start).count();
     return result;
 }

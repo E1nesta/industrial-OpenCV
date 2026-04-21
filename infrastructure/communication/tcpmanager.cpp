@@ -6,14 +6,17 @@
 
 #include <QElapsedTimer>
 
-#include "common/utils/utils.h"
-
 namespace
 {
+QString resultText(bool isOk)
+{
+    return isOk ? QStringLiteral("OK") : QStringLiteral("NG");
+}
+
 QByteArray buildResultPayload(bool isOk)
 {
     // 当前协议采用单行文本报文，便于外部调试工具快速联调。
-    return QByteArray("RESULT:") + utils::boolToResultText(isOk).toUtf8() + '\n';
+    return QByteArray("RESULT:") + resultText(isOk).toUtf8() + '\n';
 }
 
 bool isAckReply(const QByteArray &reply)
